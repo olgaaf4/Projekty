@@ -1,0 +1,688 @@
+---
+title: "Raport 1"
+author: "Olga Foriasz 277529, Szymon Smoła 282252"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    fig_caption: true
+    fig_width: 5
+    fig_height: 4
+    number_sections: true
+  html_document:
+    toc: true
+    df_print: paged
+header-includes:
+- \usepackage[OT4]{polski}
+- \usepackage[utf8]{inputenc}
+- \usepackage{graphicx}
+- \usepackage{float}
+subtitle: Eksploracja danych
+fontsize: 12pt
+---
+
+```{r setup_wczytanie_danych, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+
+dane <- read.csv(file="WA_Fn-UseC_-Telco-Customer-Churn.csv", stringsAsFactors = TRUE)
+```
+
+# Krótki opis zagadnienia
+
+W sprawozdaniu będziemy przeprowadzać analizę wybranych danych przedstawionych 
+w zbiorze danych WA_Fn-UseC_-Telco-Customer-Churn.csv, oraz szczegółową
+interpretację otrzymanych wyników. Zbiór danych zawiera informacje o klientach pewnej
+firmy telekomunikacyjnej. Dane pochodzą ze strony Kaggle (źródło: https://www.kaggle.com/datasets/blastchar/telco-customer-churn)
+
+Podczas analizy będziemy chcieli znaleźć odpowiedzi na poniżej przedstawione pytania:
+
+* Co sprawia, że klienci pozostają lojalni i korzystają ponownie z usług?
+* Dlaczego pewni klienci rezygnują z usług i co za to odpowiada? Czy da się rozpoznać, co łączy wszystkich rezygnujących?
+* Co należałoby poprawić, aby zwiększyć procent lojalnych klientów? 
+
+# Opis eksperymentów/analiz
+
+* W raporcie zostaną przeprowadzone analizy, w jaki sposób poszczególne dane wpływają na decyzje klientów. 
+
+* W analizie wykorzystane zostaną metody graficzne. Na wykresach kołowych oraz słupkowych ukazane zostaną wybrane zmienne, przedstawiające ciekawe obserwacje dotyczące klientów. Dzięki nim będzie możliwe zauważenie ogromnych dysproporcji w niektórych kluczowych obserwacjach. Dodatkowo na wykresach korelacji będziemy chcieli odszukać zależności liniowych pomiędzy zmiennymi ciągłymi. 
+
+
+# Wyniki
+
+```{r etap1_a_b, echo=FALSE}
+
+
+przypadki <- as.numeric(nrow(dane))
+cechy_start <- as.numeric(ncol(dane))
+dane <- dane[,-1]
+
+colnames(dane) <- c("płeć", "senior", "partner", "osoby zależne", "czas trwania", "usługa telefoniczna", "wiele linii telefonicznych",  
+"usługa internetowa", "ochrona online", "kopia zapasowa online", "ochrona urządzenia", "wsparcie techniczne",  
+"telewizja strumieniowa", "filmy strumieniowe", "umowa", "faktura elektroniczna", "metoda płatności",  
+"miesięczne opłaty", "całkowite opłaty", "rezygnacja z usług")
+
+dane$senior <-as.factor(dane$senior)
+#is.factor(dane$senior)
+
+dane$senior <- factor(dane$senior, levels = c("0", "1"), labels = c("Nie", "Tak"))
+dane$płeć <- factor(dane$płeć, levels = c("Female", "Male"), labels = c("Kobieta", "Mężczyzna"))
+dane$partner <- factor(dane$partner, levels = c("No", "Yes"), labels = c("Nie", "Tak"))
+dane$`osoby zależne` <- factor(dane$`osoby zależne`, levels = c("No", "Yes"), labels = c("Nie", "Tak"))
+dane$`usługa telefoniczna` <- factor(dane$`usługa telefoniczna`, levels = c("No", "Yes"), labels = c("Nie", "Tak"))
+dane$`faktura elektroniczna` <- factor(dane$`faktura elektroniczna`, levels = c("No", "Yes"), labels = c("Nie", "Tak"))
+dane$`rezygnacja z usług` <- factor(dane$`rezygnacja z usług`, levels = c("No", "Yes"), labels = c("Nie", "Tak"))
+dane$`ochrona online` <- factor(dane$`ochrona online`, levels = c("No", "No internet service", "Yes"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$`kopia zapasowa online` <- factor(dane$`kopia zapasowa online`, levels = c("No", "No internet service", "Yes"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$`ochrona urządzenia` <- factor(dane$`ochrona urządzenia`, levels = c("No", "No internet service", "Yes"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$`wsparcie techniczne` <- factor(dane$`wsparcie techniczne`, levels = c("No", "No internet service", "Yes"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$`telewizja strumieniowa` <- factor(dane$`telewizja strumieniowa`, levels = c("No", "No internet service", "Yes"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$`filmy strumieniowe` <- factor(dane$`filmy strumieniowe`, levels = c("No", "No internet service", "Yes"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$umowa <- factor(dane$umowa, levels = c("Month-to-month", "One year", "Two year"), labels = c("Z miesiąca na miesiąc", "Jednoletnia", "Dwuletnia"))
+dane$`usługa internetowa` <- factor(dane$`usługa internetowa`, levels = c("DSL", "Fiber optic", "No"), labels = c("Cyfrowa linia abonencka", "Światłowód", "Brak"))
+dane$`wiele linii telefonicznych` <- factor(dane$`wiele linii telefonicznych`, levels = c("No", "No phone service", "Yes"), labels = c("Nie", "Brak usługi telefonicznej", "Tak"))
+dane$`metoda płatności` <- factor(dane$`metoda płatności`, levels = c("Electronic check", "Mailed check", "Bank transfer (automatic)","Credit card (automatic)"), labels = c("Czek elektroniczny", "Czek wysyłany pocztą", "Przelew bankowy","Karta kredytowa"))
+#str(dane)
+
+cechy_usuniecie <- as.numeric(ncol(dane))
+#colSums(is.na(dane))
+library(DataExplorer)
+#plot_str(dane)
+dane<-na.omit(dane)
+przypadki_usuniecie <- as.numeric(nrow(dane))
+
+```
+Nasze dane składały się początkowo z `r cechy_start` cech i `r przypadki` przypadków, ale nie wszystkie cechy będą nam potrzebne w analizie. Wykorzystamy zatem `r cechy_usuniecie` cech ze wszystkich, które posiadamy.
+
+Dane składają się z 3 kolumn o wartościach numerycznych, 17 o wartościach factor oraz 1 odpowiedzialnej za ID klienta. W analizie nie przyda się nam informacja o ID klienta, więc można ją usunąć z ramki danych, która będzie później użyta w dalszej części analizy. 
+
+Brakujące wartości zostały oznaczone poprzez NA, a rekordy którym one odpowiadały zostały usunięte z ramki danych i teraz analizowanych przypadków jest `r przypadki_usuniecie`. 
+
+Nie zaobserwowano żadnych niestandardowych notacji w danych.
+
+
+## Fragmenty R-kodów
+
+Na podstawie danych, wyznaczamy podstawowe wskaźniki dla zmiennych ilościowych
+
+```{r etap_2a, echo = FALSE, fig.cap="Tabela 1"}
+## Wyznaczany podstawowe wskaźniki sumaryczne dla zmiennych ilościowych
+##summary(dane$`czas trwania`)
+##summary(dane$`miesięczne opłaty`)
+##summary(dane$`całkowite opłaty`)
+
+## Tworzymy tabelę przedstawiającą podstawowe wskaźniki sumaryczne dla 
+## zmiennych iloścowych
+
+library(kableExtra)
+library(knitr)
+nazwy.wskaznikow <- names(summary(dane$`czas trwania`))
+nazwy.zmiennych  <- c("czas trwania","miesięczne opłaty","całkowite opłaty")
+
+kable(cbind(summary(dane$`czas trwania`),summary(dane$`miesięczne opłaty`),summary(dane$`całkowite opłaty`)),col.names=nazwy.zmiennych, caption="Podstawowe wskaźniki sumaryczne dla zmiennnych czas trwania,  miesięczne opłaty i całkowite opłaty", digits = 3)
+
+
+```
+
+Tabela 1 przedstawia podstawowe wskaźniki dla zmiennych ilościowych. Możemy odczytać, że dla zmiennej pierwszej - czas trwania usługi - mediana oraz średnia jest w miarę do siebie zbliżona. Odpowiednio wynoszą 29 i niemal 32,5 miesiąca. Da się także zaobserowawać duży rozrzut pomiędzy minimum a maksimum czasu trawnia usługi. Minimalny czas wynosi 1 miesiąc, podczas gdy maksymalny 72 - czyli 6 lat. 
+Podobne wnisoki możemy wyciągnąc dla zmiennych Oplaty_miesieczne oraz Oplaty_laczne. Minimum dla obu zmiennych jest do siebie zbliżone, w przeciwieństwie do maksimum, które dla łącznych opłat jest niemalże 73 razy większe.
+Jak możemy zaobserwować wartości wahają się pomiędzy 1-72 miesięcy dla długości trwania usługi, od lekko ponad 18 do prawie 119 dla miesięcznych opłatoraz od ponad 18 do aż niemalże 8685 dla opłat łącznych. Można także zauważyć, że żadna ze zmiennych nie ma rozkładu symetrycznego, jednak najbardziej zbliżony do niego jest histogram ukazujący zmienną odpowiadającą czasowi trwania usługi, dla każdego klienta. Największą zmiennością charakteryzują się opłaty łączne. Duży procent klientów, jest nimi przez niewielki okres czasu, a tylko dla nielicznych opłaty łączne sięgają górnych kresów - tj. około 8000.
+
+
+Oraz podstawowe wskaźniki sumaryczne dla zmiennych jakościowych:
+
+```{r etap_2aa, echo=FALSE, fig.cap="Tabela 2"}
+## Wyznaczany podstawowe wskaźniki sumaryczne dla zmiennych jakościowych
+
+##table(dane$płeć)
+##table(dane$senior)
+##table(dane$partner)
+##table(dane$`osoby zależne`)
+##table(dane$`usługa telefoniczna`)
+##table(dane$`wiele linii telefonicznych`)
+##table(dane$`usługa internetowa`)
+##table(dane$`ochrona online`)
+##table(dane$`kopia zapasowa online`)
+##table(dane$`ochrona urządzenia`)
+##table(dane$`wsparcie techniczne`)
+##table(dane$`telewizja strumieniowa`)
+##table(dane$`filmy strumieniowe`)
+##table(dane$umowa)
+##table(dane$`faktura elektroniczna`)
+##table(dane$`metoda płatności`)
+##table(dane$`rezygnacja z usług`)
+  
+library(dplyr)
+library(knitr)
+
+# Tworzenie listy tabel dla wybranych zmiennych
+tabela <- list(
+  płeć = table(dane$płeć),
+  senior = table(dane$senior),
+  partner = table(dane$partner),
+  `osoby zależne` = table(dane$`osoby zależne`),
+  `usługa telefoniczna` = table(dane$`usługa telefoniczna`),
+  `wiele linii telefonicznych` = table(dane$`wiele linii telefonicznych`),
+  `usługa internetowa` = table(dane$`usługa internetowa`),
+  `ochrona online` = table(dane$`ochrona online`),
+  `kopia zapasowa online` = table(dane$`kopia zapasowa online`),
+  `ochrona urządzenia` = table(dane$`ochrona urządzenia`),
+  `wsparcie techniczne` = table(dane$`wsparcie techniczne`),
+  `telewizja strumieniowa` = table(dane$`telewizja strumieniowa`),
+  `filmy strumieniowe` = table(dane$`filmy strumieniowe`),
+  `umowa` = table(dane$umowa),
+  `faktura elektroniczna` = table(dane$`faktura elektroniczna`),
+  `metoda płatności` = table(dane$`metoda płatności`),
+  `rezygnacja z usług` = table(dane$`rezygnacja z usług`)
+)
+
+# Konwersja do ramki danych
+df_tabela <- do.call(rbind, lapply(names(tabela), function(var) {
+  data.frame(
+    Zmienna = var,
+    Wartość = names(tabela[[var]]),
+    Liczność = as.numeric(tabela[[var]]),
+    row.names = NULL
+  )
+}))
+
+kable(df_tabela, format = "markdown", col.names = c("Zmienna", "Wartość", "Liczność"),
+      caption = "Podstawowe wskaźniki sumaryczne dla zmiennych jakościowych ")
+```
+
+Z tabeli numer 2 można odczytać dane na temat każej zmiennej jakościowej, jednak nie wszystkie przedstawiają dane przydatne do analizy. Z tego względu zajmiemy się omówieniem ciekawszych z nich oraz takich, które mogą zostać użyte do wyciągnięcia interesujących nas wniosków. Pierwszą informacją jest to, że płeć klientów nie ma znaczenia - to znaczy, że firma dociera do obiorców zarówno płci męskiej, jak i damskiej. Następnie na podstawie zmiennej Seniorzy możemy zauważyć, że znaczna większość klientów to ludzie nie posiadający statusu seniora  - jest ich dokładnie 5890, podczas gdy seniorów raptem 1142. Ciekawe obserwacje dotyczą także typu umowy - najpopularniejszą jest umowa miesięczna. Może to świadczyć, że klienci cenią sobie mozliwość bycia elsatycznym oraz brak długotrwałych zobowiązań. Co z kolei wiąże się z tym, że mogą być prędzej skorzy do odejścia niż klienci z dłuższymi umowami. Warte zauważenia jest także, to najpopularniejszą metodą płatności jest czek elektroniczny. Podczas, gdy 3 pozostałe metody płatności są wybierane z tą samą częstotliwością. Ostatnią kluczową informacją, która jest także celem naszej analizy, jest zmienna Rezygnacja_z_usługi. Ponad 25% klientów rezygnuje z usług.
+
+## Wykresy
+
+Na podstawie danych wygenerowane zostały wykresy dla zmienncyh ilościowych:
+
+```{r zamiana_nazw_pod_wykresy, echo=FALSE}
+dane$`ochrona online` <- factor(dane$`ochrona online`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$`kopia zapasowa online` <- factor(dane$`kopia zapasowa online`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$`ochrona urządzenia` <- factor(dane$`ochrona urządzenia`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$`wsparcie techniczne` <- factor(dane$`wsparcie techniczne`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$`telewizja strumieniowa` <- factor(dane$`telewizja strumieniowa`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$`filmy strumieniowe` <- factor(dane$`filmy strumieniowe`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$umowa <- factor(dane$umowa, levels = c("Z miesiąca na miesiąc", "Jednoletnia", "Dwuletnia"), labels = c("Z miesiąca \n na miesiąc", "Jednoletnia", "Dwuletnia"))
+dane$`usługa internetowa` <- factor(dane$`usługa internetowa`, levels = c("Cyfrowa linia abonencka", "Światłowód", "Brak"), labels = c("Cyfrowa \n linia \n abonencka", "Światłowód", "Brak"))
+dane$`wiele linii telefonicznych` <- factor(dane$`wiele linii telefonicznych`, levels = c("Nie", "Brak usługi telefonicznej", "Tak"), labels = c("Nie", "Brak \n usługi \n telefonicznej", "Tak"))
+dane$`metoda płatności` <- factor(dane$`metoda płatności`, levels = c("Czek elektroniczny", "Czek wysyłany pocztą", "Przelew bankowy","Karta kredytowa"), labels = c("Czek \n elektroniczny", "Czek \n wysyłany \n pocztą", "Przelew \n bankowy","Karta \n kredytowa"))
+```
+
+
+```{r histogram_ilosciowe, echo=FALSE, fig.cap = "Histogramy dla zmiennych ilościowych"}
+
+## Wykresy dla zmiennych ilościowych
+
+par(mfrow=c(1,3), mar=c(4,4,2,1))
+
+hist(dane$`czas trwania`, col="orchid2", 
+     main = "Histogram zmiennej \n czas trwania",
+     xlab="dane", ylab="wartość")
+hist(dane$`miesięczne opłaty`, col="mediumorchid3", 
+     main ="Histogram zmiennej \n miesięczne opłaty",
+     xlab="dane", ylab="wartość")
+hist(dane$`całkowite opłaty`, col="darkorchid",
+     main="Histogram zmiennej \n całkowite opłaty",
+     xlab ="dane", ylab="wartość")
+
+```
+
+```{r pudelkowe_ilosciowe, echo=FALSE, fig.cap = "Wykresy pudełkowe dla zmiennych ilościowych"}
+
+par(mfrow=c(1,3), mar=c(5,4,4,2)+0.1)
+boxplot(dane$`czas trwania`, main="Wykres zmiennej \n czas trwania",
+        col="orchid2", ylab="wartość")
+boxplot(dane$`miesięczne opłaty`, main="Wykres zmiennej \n miesięczne opłaty", 
+        col="mediumorchid3", ylab="wartość")
+boxplot(dane$`całkowite opłaty`, main="Wykres zmiennej \n całkowite opłaty", 
+        col="darkorchid", ylab="wartość")
+
+```
+
+Wykresy są graficzną metodą przedstawienia danych ilościowych. Do zmiennych przedstawionych na wykresach na Rysunku 1. oraz 2. odnosi się także Tabela 1, pod którą znajduje się krótka analiza wskaźników sumarycznych. Wykresy dla zmiennej czasu trwania usługi, potwierdzają tezę wysuniętą z odczytywania wskaźników sumarycznych. Najważniejszą obserwacją jest to, że umowy na krótki okres czasu mają zdcecydowaną przewagę nad pozostałymi możliwościami. Wykresy dla zmiennej opłat miesięcznych, pokazują że wartości najpierw rosną, następnie zaliczają ogromny spadek. Po czym znów rosną i ponownie opadają, jednak już nie tak drastycznie. Ostatnie Wykresy przedstawiające zmienną Oplaty_laczne ukazują widoczne skumulowanie wartości w dolnych przedziałach. Oznacza to, że znaczna liczba klientów płaci podobne stawki, które oscylują w dolnych granicach cen opłat łącznych.
+
+
+Poniżej znajdują się wybrane wykresy dla zmiennych jakościowych
+```{r etap_2bb, echo=FALSE, fig.cap = "Wybrane wykresy dla zmiennych jakościowych"}
+
+## Wykresy dla zmiennych jakościowych
+
+##library(DataExplorer)
+##plot_bar(dane, title="Wykresy słupkowe dla zmiennych jakościowych")
+
+par(mfrow=c(1,2))
+
+barplot(table(dane$płeć), col=c("pink","lightblue"), main="Zmienna \n płeć", cex.names=0.7)
+
+barplot(table(dane$`rezygnacja z usług`), col=c("indianred2","lawngreen"), main="Zmienna \n rezygnacja z usług", cex.names=0.7)
+
+pie(table(dane$`metoda płatności`), col=c("lightblue","lightskyblue","steelblue","royalblue"), main="Zmienna \n metoda płatności", cex=0.5)
+
+pie(table(dane$`faktura elektroniczna`), col=c("indianred2","lawngreen"), main="Zmienna \n faktura elektroniczna", cex=0.7)
+
+##barplot(table(dane$senior), col=c("indianred2","lawngreen"), main="Zmienna \n senior", cex.names=0.7)
+
+##barplot(table(dane$partner), col=c("indianred2","lawngreen"), main="Zmienna \n partner", cex.names=0.7)
+
+##barplot(table(dane$`osoby zależne`), col=c("indianred2","lawngreen"), main="Zmienna \n osoby zależne", cex.names=0.7)
+
+barplot(table(dane$`usługa telefoniczna`), col=c("indianred2","lawngreen"), main="Zmienna \n usługa telefoniczna", cex.names=0.7)
+
+##barplot(table(dane$`wiele linii telefonicznych`), col=c("indianred2","sandybrown","lawngreen"), main="Zmienna \n wiele linii telefonicznych", cex.names=0.5)
+
+barplot(table(dane$`usługa internetowa`), col=c("indianred2","sandybrown","lawngreen"), main="Zmienna \n usługa internetowa", cex.names=0.3)
+
+##barplot(table(dane$`ochrona online`), col=c("indianred2","sandybrown","lawngreen"), main="Zmienna \n ochrona online", cex.names=0.5)
+
+##barplot(table(dane$`kopia zapasowa online`), col=c("indianred2","sandybrown","lawngreen"), main="Zmienna \n kopia zapasowa online", cex.names=0.5)
+
+##barplot(table(dane$`ochrona urządzenia`), col=c("indianred2","sandybrown","lawngreen"), main="Zmienna \n ochrona urządzenia", cex.names=0.5)
+
+##barplot(table(dane$`wsparcie techniczne`), col=c("indianred2","sandybrown","lawngreen"), main="Zmienna \n wsparcie techniczne", cex.names=0.5)
+
+barplot(table(dane$`telewizja strumieniowa`), col=c("indianred2","sandybrown","lawngreen"), main="Zmienna \n telewizja strumieniowa", cex.names=0.5)
+
+##barplot(table(dane$`filmy strumieniowe`), col=c("indianred2","sandybrown","lawngreen"), main="Zmienna \n filmy strumieniowe", cex.names=0.5)
+
+barplot(table(dane$umowa), col=c("indianred2","sandybrown","lawngreen"), main="Zmienna \n umowa", cex.names=0.3)
+
+```
+
+Wykresy na Rysunku 3-6 przedstawiają graficznie zmienne jakościowe. Na posdstawie wykresu, dochodzimy do analogicznych wniosków jak przy analizie Tabeli 2.
+
+
+Następnie wykresy przedstawiające zależności pomiędzy parami zmiennych ciągłych
+
+```{r etap_2c, echo=FALSE, fig.cap = "Wykresy zależności zmiennych ciągłych"}
+
+dane.ilosciowe <- split_columns(dane)$continuous
+
+plot_scatterplot(dane.ilosciowe, by="czas.trwania", nrow=1, ncol=3, geom_point_args = list(size = 0.1, color = "navajowhite2"))
+
+plot_scatterplot(na.omit(dane.ilosciowe), by="miesięczne.opłaty", nrow=1, ncol=3, geom_point_args = list(size = 0.25, color = "burlywood3"))
+
+plot_scatterplot(dane.ilosciowe, by="całkowite.opłaty", nrow=1, ncol=3, geom_point_args = list(size = 0.25, color = "saddlebrown"))
+
+```
+
+Wykresy zależności ukazują, że pomiędzy zmiennymi nie ma zależności liniowych, najbardziej zbliżone do oczekiwanych efektów można zaobserwować na Rysunku 5. oraz 7., gdzie przedstawione są zależności zmiennej czasu trwania usługi od łącznych opłat bądź na odwrót. Tam zależność także nie jest idealnie liniowa, ze względu na ukazany duży rozrzut danych, jednak są to jedyne zmienne, których zależność choćby w pewnym stopniu zbliża się do zależności liniowej. Oczywiście jest to wyjaśnione tym, że im dłużej trwa umowa, tym większe koszty ponosi klient, czyli rosną łączne opłaty.
+
+
+```{r odmiana_nazw_pod_tabele, echo=FALSE}
+dane$`ochrona online` <- factor(dane$`ochrona online`, levels = c("Nie", "Brak \n usługi \n internetowej", "Tak"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$`kopia zapasowa online` <- factor(dane$`kopia zapasowa online`, levels = c("Nie", "Brak \n usługi \n internetowej", "Tak"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$`ochrona urządzenia` <- factor(dane$`ochrona urządzenia`, levels = c("Nie", "Brak \n usługi \n internetowej", "Tak"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$`wsparcie techniczne` <- factor(dane$`wsparcie techniczne`, levels = c("Nie", "Brak \n usługi \n internetowej", "Tak"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$`telewizja strumieniowa` <- factor(dane$`telewizja strumieniowa`, levels = c("Nie", "Brak \n usługi \n internetowej", "Tak"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$`filmy strumieniowe` <- factor(dane$`filmy strumieniowe`, levels = c("Nie", "Brak \n usługi \n internetowej", "Tak"), labels = c("Nie", "Brak usługi internetowej", "Tak"))
+dane$umowa <- factor(dane$umowa, levels = c("Z miesiąca \n na miesiąc", "Jednoletnia", "Dwuletnia"), labels = c("Z miesiąca na miesiąc", "Jednoletnia", "Dwuletnia"))
+dane$`usługa internetowa` <- factor(dane$`usługa internetowa`, levels = c("Cyfrowa \n linia \n abonencka", "Światłowód", "Brak"), labels = c("Cyfrowa linia abonencka", "Światłowód", "Brak"))
+dane$`wiele linii telefonicznych` <- factor(dane$`wiele linii telefonicznych`, levels = c("Nie", "Brak \n usługi \n telefonicznej", "Tak"), labels = c("Nie", "Brak usługi telefonicznej", "Tak"))
+dane$`metoda płatności` <- factor(dane$`metoda płatności`, levels = c("Czek \n elektroniczny", "Czek \n wysyłany \n pocztą", "Przelew \n bankowy","Karta \n kredytowa"), labels = c("Czek elektroniczny", "Czek wysyłany pocztą", "Przelew bankowy", "Karta kredytowa"))
+
+```
+
+
+
+```{r podzbiory_klientow, echo=FALSE}
+odeszli <- subset(dane, `rezygnacja z usług` == "Tak")
+zostali <- subset(dane, `rezygnacja z usług` == "Nie")
+```
+
+```{r wskazniki_ilosciowe_odeszli, echo = FALSE, fig.cap="Tabela 3"}
+## Wyznaczany podstawowe wskaźniki sumaryczne zmiennych ilościowych
+##summary(odeszli$`czas trwania`)
+##summary(odeszli$`miesięczne opłaty`)
+##summary(odeszli$`całkowite opłaty`)
+
+## Tworzymy tabelę przedstawiającą podstawowe wskaźniki sumaryczne 
+## zmiennych iloścowych
+
+nazwy.wskaznikow <- names(summary(odeszli$`czas trwania`))
+nazwy.zmiennych  <- c("odeszli$`czas trwania`","odeszli$`miesięczne opłaty`","odeszli$`całkowite opłaty`")
+
+odeszli.czas_trwania.summary <- as.vector(summary(odeszli$`czas trwania`))
+odeszli.miesięczne_opłaty.summary <- as.vector(summary(odeszli$`miesięczne opłaty`))
+odeszli.całkowite_opłaty.summary <- as.vector(summary(odeszli$`całkowite opłaty`))
+summary.matrix <- rbind(odeszli.czas_trwania.summary,odeszli.miesięczne_opłaty.summary,odeszli.całkowite_opłaty.summary)
+
+
+kable(cbind(summary(odeszli$`czas trwania`), summary(odeszli$`miesięczne opłaty`), summary(odeszli$`całkowite opłaty`)),
+      col.names = c("czas trwania","miesięczne opłaty","całkowite opłaty"),
+      caption="Wybrane wskazniki sumaryczne dla zmiennych czas trwania,  miesięczne opłaty i całkowite opłaty, dla kielntów, którzy odeszli",
+      digits=3)
+
+```
+
+
+```{r wskazniki_ilosciowe_zostali, echo = FALSE, fig.cap="Tabela 4"}
+## Wyznaczany podstawowe wskaźniki sumaryczne zmiennych ilościowych
+##summary(zostali$`czas trwania`)
+##summary(zostali$`miesięczne opłaty`)
+##summary(zostali$całkowite opłaty)
+
+## Tworzymy tabelę przedstawiającą podstawowe wskaźniki sumaryczne 
+## zmiennych iloścowych
+
+nazwy.wskaznikow <- names(summary(zostali$`czas trwania`))
+nazwy.zmiennych  <- c("zostali$czas trwania","zostali$`miesięczne opłaty`","zostali$całkowite opłaty")
+
+zostali.czas_trwania.summary <- as.vector(summary(zostali$`czas trwania`))
+zostali.miesięczne_opłaty.summary <- as.vector(summary(zostali$`miesięczne opłaty`))
+zostali.całkowite_opłaty.summary <- as.vector(summary(zostali$`całkowite opłaty`))
+summary.matrix <- rbind(zostali.czas_trwania.summary,zostali.miesięczne_opłaty.summary,zostali.całkowite_opłaty.summary)
+
+kable(cbind(summary(zostali$`czas trwania`), summary(zostali$`miesięczne opłaty`), summary(zostali$`całkowite opłaty`)),
+      col.names = c("czas trwania","miesięczne opłaty","całkowite opłaty"),
+      caption="Wybrane wskazniki sumaryczne dla zmiennych czas trwania,  miesięczne opłaty i całkowite opłaty dla klientów, którzy zostali",
+      digits=3)
+
+```
+
+Podstawowe wskaźniki sumaryczne zmiennych jakościowych dla klientów, którzy odeszli:
+  
+```{r wskazniki_jakosciowe_odeszli, echo=FALSE, fig.cap="Tabela 5"}
+## Wyznaczany podstawowe wskaźniki sumaryczne dla zmiennych jakościowych
+##table(odeszli$płeć)
+##table(odeszli$senior)
+##table(odeszli$partner)
+##table(odeszli$`osoby zależne`)
+##table(odeszli$`usługa telefoniczna`)
+##table(odeszli$`wiele linii telefonicznych`)
+##table(odeszli$`usługa internetowa`)
+##table(odeszli$`ochrona online`)
+##table(odeszli$`kopia zapasowa online`)
+##table(odeszli$`ochrona urządzenia`)
+##table(odeszli$`wsparcie techniczne`)
+##table(odeszli$`telewizja strumieniowa`)
+##table(odeszli$`filmy strumieniowe`)
+##table(odeszli$umowa)
+##table(odeszli$`faktura elektroniczna`)
+##table(odeszli$`metoda płatności`)
+##table(odeszli$`rezygnacja z usług`)
+
+
+library(dplyr)
+library(knitr)
+
+# Tworzenie listy tabel dla wybranych zmiennych
+tabela_odeszli <- list(
+  płeć = table(odeszli$płeć),
+  senior = table(odeszli$senior),
+  partner = table(odeszli$partner),
+  `osoby zależne` = table(odeszli$`osoby zależne`),
+  `usługa telefoniczna` = table(odeszli$`usługa telefoniczna`),
+  `wiele linii telefonicznych` = table(odeszli$`wiele linii telefonicznych`),
+  `usługa internetowa` = table(odeszli$`usługa internetowa`),
+  `ochrona online` = table(odeszli$`ochrona online`),
+  `kopia zapasowa online` = table(odeszli$`kopia zapasowa online`),
+  `ochrona urządzenia` = table(odeszli$`ochrona urządzenia`),
+  `wsparcie techniczne` = table(odeszli$`wsparcie techniczne`),
+  `telewizja strumieniowa` = table(odeszli$`telewizja strumieniowa`),
+  `filmy strumieniowe` = table(odeszli$`filmy strumieniowe`),
+  `umowa` = table(odeszli$umowa),
+  `faktura elektroniczna` = table(odeszli$`faktura elektroniczna`),
+  `metoda płatności` = table(odeszli$`metoda płatności`),
+  `rezygnacja z usług` = table(odeszli$`rezygnacja z usług`)
+)
+
+
+df_tabela_odeszli <- do.call(rbind, lapply(names(tabela_odeszli), function(var) {
+  data.frame(
+    Zmienna = var,
+    Wartość = names(tabela_odeszli[[var]]),
+    Liczność = as.numeric(tabela_odeszli[[var]]),
+    row.names = NULL
+  )
+}))
+
+kable(df_tabela_odeszli, format = "markdown", col.names = c("Zmienna", "Wartość", "Liczność"), caption ="Podstawowe wskaźniki sumaryczne dla zmiennych jakościowych dla klientów, którzy odeszli ")
+
+
+```
+
+Podstawowe wskaźniki sumaryczne zmiennych jakościowych dla klientów, którzy zostali:
+
+```{r wskazniki_jakosciowe_zostali, echo=FALSE, fig.cap="Tabela 6"}
+## Wyznaczany podstawowe wskaźniki sumaryczne dla zmiennych jakościowych
+##table(zostali$płeć)
+##table(zostali$senior)
+##table(zostali$partner)
+##table(zostali$`osoby zależne`)
+##table(zostali$`usługa telefoniczna`)
+##table(zostali$`wiele linii telefonicznych`)
+##table(zostali$`usługa internetowa`)
+##table(zostali$`ochrona online`)
+##table(zostali$`kopia zapasowa online`)
+##table(zostali$`ochrona urządzenia`)
+##table(zostali$`wsparcie techniczne`)
+##table(zostali$`telewizja strumieniowa`)
+##table(zostali$`filmy strumieniowe`)
+##table(zostali$umowa)
+##table(zostali$`faktura elektroniczna`)
+##table(zostali$`metoda płatności`)
+##table(zostali$`rezygnacja z usług`)
+
+library(dplyr)
+library(knitr)
+
+tabela_zostali <- list(
+  płeć = table(zostali$płeć),
+  senior = table(zostali$senior),
+  partner = table(zostali$partner),
+  `osoby zależne` = table(zostali$`osoby zależne`),
+  `usługa telefoniczna` = table(zostali$`usługa telefoniczna`),
+  `wiele linii telefonicznych` = table(zostali$`wiele linii telefonicznych`),
+  `usługa internetowa` = table(zostali$`usługa internetowa`),
+  `ochrona online` = table(zostali$`ochrona online`),
+  `kopia zapasowa online` = table(zostali$`kopia zapasowa online`),
+  `ochrona urządzenia` = table(zostali$`ochrona urządzenia`),
+  `wsparcie techniczne` = table(zostali$`wsparcie techniczne`),
+  `telewizja strumieniowa` = table(zostali$`telewizja strumieniowa`),
+  `filmy strumieniowe` = table(zostali$`filmy strumieniowe`),
+  `umowa` = table(zostali$umowa),
+  `faktura elektroniczna` = table(zostali$`faktura elektroniczna`),
+  `metoda płatności` = table(zostali$`metoda płatności`),
+  `rezygnacja z usług` = table(zostali$`rezygnacja z usług`)
+)
+
+
+df_tabela_zostali <- do.call(rbind, lapply(names(tabela_zostali), function(var) {
+  data.frame(
+    Zmienna = var,
+    Wartość = names(tabela_zostali[[var]]),
+    Liczność = as.numeric(tabela_zostali[[var]]),
+    row.names = NULL
+  )
+}))
+
+kable(df_tabela_zostali, format = "markdown", col.names = c("Zmienna", "Wartość", "Liczność"), caption = " Podstawowe wskaźniki sumaryczne dla zmiennych jakościowych, dla klientów, którzy zostali")
+
+
+```
+
+```{r ponowna_zamiana_nazw_pod_wykresy, echo=FALSE}
+dane$`ochrona online` <- factor(dane$`ochrona online`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$`kopia zapasowa online` <- factor(dane$`kopia zapasowa online`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$`ochrona urządzenia` <- factor(dane$`ochrona urządzenia`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$`wsparcie techniczne` <- factor(dane$`wsparcie techniczne`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$`telewizja strumieniowa` <- factor(dane$`telewizja strumieniowa`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$`filmy strumieniowe` <- factor(dane$`filmy strumieniowe`, levels = c("Nie", "Brak usługi internetowej", "Tak"), labels = c("Nie", "Brak \n usługi \n internetowej", "Tak"))
+dane$umowa <- factor(dane$umowa, levels = c("Z miesiąca na miesiąc", "Jednoletnia", "Dwuletnia"), labels = c("Z miesiąca \n na miesiąc", "Jednoletnia", "Dwuletnia"))
+dane$`usługa internetowa` <- factor(dane$`usługa internetowa`, levels = c("Cyfrowa linia abonencka", "Światłowód", "Brak"), labels = c("Cyfrowa \n linia \n abonencka", "Światłowód", "Brak"))
+dane$`wiele linii telefonicznych` <- factor(dane$`wiele linii telefonicznych`, levels = c("Nie", "Brak usługi telefonicznej", "Tak"), labels = c("Nie", "Brak \n usługi \n telefonicznej", "Tak"))
+dane$`metoda płatności` <- factor(dane$`metoda płatności`, levels = c("Czek elektroniczny", "Czek wysyłany pocztą", "Przelew bankowy","Karta kredytowa"), labels = c("Czek \n elektroniczny", "Czek \n wysyłany \n pocztą", "Przelew \n bankowy","Karta \n kredytowa"))
+```
+
+```{r poprawka_podzbiorow,echo=FALSE}
+odeszli <- subset(dane, `rezygnacja z usług` == "Tak")
+zostali <- subset(dane, `rezygnacja z usług` == "Nie")
+```
+
+
+## Wykresy
+
+Na podstawie danych klientów, którzy opuścili analizowaną firmę, wygenerowane zostały wykresy zmiennych ilościowych:
+  
+```{r wykresy_ilosciowe_odeszli, echo=FALSE, fig.cap="Histogramy dla zmiennych ilościowych, dla klientów, którzy odeszi"}
+
+## Wykresy dla zmiennych ilościowych
+par(mfrow=c(1,3), mar=c(5,4,4,2)+0.1)
+
+hist(odeszli$`czas trwania`, col="lightgoldenrodyellow", 
+     main = "Histogram zmiennej \n czas trwania",
+     xlab="odeszli", ylab="wartość")
+hist(odeszli$`miesięczne opłaty`, col="lightgoldenrod", 
+     main ="Histogram zmiennej \n miesięczne opłaty",
+     xlab="odeszli", ylab="wartość")
+hist(odeszli$`całkowite opłaty`, col="gold",
+     main="Histogram zmiennej \n całkowite opłaty",
+     xlab ="odeszli", ylab="wartość")
+```
+
+```{r wykresy_ilosciowe_odeszli2, echo=FALSE, fig.cap="Wykresy pudełkowe dla zmiennych ilościowych, dla klientów, którzy odeszi"}
+
+## Wykresy dla zmiennych ilościowych
+par(mfrow=c(1,3), mar=c(5,4,4,2)+0.1)
+
+boxplot(odeszli$`czas trwania`, main="Wykres zmiennej \n czas trwania",
+        col="lightgoldenrodyellow", ylab="wartość")
+boxplot(odeszli$`miesięczne opłaty`, main="Wykres zmiennej \n miesięczne opłaty", 
+        col="lightgoldenrod", ylab="wartość")
+boxplot(odeszli$`całkowite opłaty`, main="Wykres zmiennej \n całkowite opłaty", 
+        col="gold", ylab="wartość")
+
+
+```
+
+Podobnie na podstawie danych klientów, którzy nadal korzystają z usług analizowanej firmy, wygenerowane zostały wykresy zmiennych ilościowych:
+
+```{r wykresy_ilosciowe_zostali, echo=FALSE, fig.cap="Histogramy dla zmiennych ilościowych, dla klientów, którzy zostali"}
+
+## Wykresy dla zmiennych ilościowych
+par(mfrow=c(1,3), mar=c(5,4,4,2)+0.1)
+
+hist(zostali$`czas trwania`, col="darkolivegreen2", 
+     main = "Histogram zmiennej \n czas trwania",
+     xlab="zostali", ylab="wartość")
+hist(zostali$`miesięczne opłaty`, col="olivedrab3", 
+     main ="Histogram zmiennej \n miesięczne opłaty",
+     xlab="zostali", ylab="wartość")
+hist(zostali$`całkowite opłaty`, col="chartreuse3",
+     main="Histogram zmiennej \n całkowite opłaty",
+     xlab ="zostali", ylab="wartość")
+```
+
+```{r wykresy_ilosciowe_zostali2, echo=FALSE, fig.cap="Wykresy pudełkowe dla zmiennych ilościowych, dla klientów, którzy zostali"}
+par(mfrow=c(1,3), mar=c(5,4,4,2)+0.1)
+boxplot(zostali$`czas trwania`, main="Wykres zmiennej \n czas trwania",
+        col="darkolivegreen2", ylab="wartość")
+boxplot(zostali$`miesięczne opłaty`, main="Wykres zmiennej \n miesięczne opłaty", 
+        col="olivedrab3", ylab="wartość")
+boxplot(zostali$`całkowite opłaty`, main="Wykres zmiennej \n całkowite opłaty", 
+        col="chartreuse3", ylab="wartość")
+
+```
+
+Histogramy zmiennych ilościowych odpowiedzialnych za koszta miesięcze i łączne przedstawione dla klientów, którzy odeszli i dla tych, którzy zostali przy analizowanej firmie w większości nie pokazują znacznych różnic między tymi grupami. Jedyne miejsce, w którym te grupy odbiegają od siebie możemy zaobserwować przy niskich opłatach miesięcznych (w okolicach do 40). W takim przypadku widzimy, że znaczna część osób, która zdecydowała się na takie opłaty miesięczne nie zrezygnowała jeszcze z korzystania z usług świadczonych przez tę firmę. Natomiast histogramy zmiennej czas trwania znacznie się między sobą różnią. Ten obrazujący klientów lojalnych posiada nawet rozkład symetryczny, starych klientów (około 6 lat lojalności) jest prawie tylu co klientów nowych (do 5 miesięcy lojalności). Na ich podstawie możemy stwierdzić, że klienci, którzy odchodzą od analizowanej firmy robią to zazwyczaj przed upływem 10 miesięcy od rozpoczęcia korzystania z jej usług, a ci którzy wytrwają przy niej dłużej niż rok najprawdopodobniej zostaną w niej na znacznie dłuższy okres. [Im dłużej klient korzysta z usług firmy tym mniej prawdopodobne jest to, że z nich zrezygnuje] 
+
+Poniżej znajduje się porównanie wykresów jakościowych klientów, którzy przestali korzystać z usług świadczonych przez firmę oraz tych którzy nadal z nich korzystają
+
+```{r wykresy_jakosciowe_odeszli_zostali, echo=FALSE, fig.cap="Wykres dla zmiennej jakościowej z podziałem na klientów, którzy odeszli oraz tych, którzy zostali"}
+
+## Wykresy dla zmiennych jakościowych
+
+##library(DataExplorer)
+##plot_bar(odeszli, title="Wykresy słupkowe dla zmiennych jakościowych")
+
+par(mfrow=c(1,2))
+
+barplot(table(odeszli$płeć), col=c("pink","lightblue"), main="Odeszli \n płeć", cex.names=0.7)
+
+barplot(table(zostali$płeć), col=c("pink","lightblue"), main="Zostali \n płeć", cex.names=0.7) 
+
+##barplot(table(odeszli$`rezygnacja z usług`), col=c("indianred2","lawngreen"), main="Odeszli \n rezygnacja z usług")
+
+##barplot(table(zostali$`rezygnacja z usług`), col=c("indianred2","lawngreen"), main="Zostali \n rezygnacja z usług")
+
+pie(table(odeszli$`metoda płatności`), col=c("lightblue","lightskyblue","steelblue","royalblue"), main="Odeszli \n metoda płatności", cex=0.5)
+
+pie(table(zostali$`metoda płatności`), col=c("lightblue","lightskyblue","steelblue","royalblue"), main="Zostali \n metoda płatności", cex=0.5)
+
+pie(table(odeszli$`faktura elektroniczna`), col=c("indianred2","lawngreen"), main="Odeszli \n faktura elektroniczna", cex=0.7)
+
+pie(table(zostali$`faktura elektroniczna`), col=c("indianred2","lawngreen"), main="Zostali \n faktura elektroniczna", cex=0.7)
+
+#barplot(table(odeszli$senior), col=c("indianred2","lawngreen"), main="Odeszli \n senior", cex.names=0.7)
+
+#barplot(table(zostali$senior), col=c("indianred2","lawngreen"), main="Zostali \n senior", cex.names=0.7)
+
+#barplot(table(odeszli$partner), col=c("indianred2","lawngreen"), main="Odeszli \n partner", cex.names=0.7)
+
+#barplot(table(zostali$partner), col=c("indianred2","lawngreen"), main="Zostali \n partner", cex.names=0.7)
+
+#barplot(table(odeszli$`osoby zależne`), col=c("indianred2","lawngreen"), main="Odeszli \n osoby zależne", cex.names=0.7)
+
+#barplot(table(zostali$`osoby zależne`), col=c("indianred2","lawngreen"), main="Zostali \n osoby zależne", cex.names=0.7)
+
+#barplot(table(odeszli$`usługa telefoniczna`), col=c("indianred2","lawngreen"), main="Odeszli \n usługa telefoniczna", cex.names=0.7)
+
+#barplot(table(zostali$`usługa telefoniczna`), col=c("indianred2","lawngreen"), main="Zostali \n usługa telefoniczna", cex.names=0.7)
+
+#barplot(table(odeszli$`wiele linii telefonicznych`), col=c("indianred2","sandybrown","lawngreen"), main="Odeszli \n wiele linii telefonicznych", cex.names=0.5)
+
+#barplot(table(zostali$`wiele linii telefonicznych`), col=c("indianred2","sandybrown","lawngreen"), main="Zostali \n wiele linii telefonicznych", cex.names=0.5)
+
+barplot(table(odeszli$`usługa internetowa`), col=c("indianred2","sandybrown","lawngreen"), main="Odeszli \n usługa internetowa", cex.names=0.3)
+
+barplot(table(zostali$`usługa internetowa`), col=c("indianred2","sandybrown","lawngreen"), main="Zostali \n usługa internetowa", cex.names=0.3)
+
+#barplot(table(odeszli$`ochrona online`), col=c("indianred2","sandybrown","lawngreen"), main="Odeszli \n ochrona online", cex.names=0.5)
+
+#barplot(table(zostali$`ochrona online`), col=c("indianred2","sandybrown","lawngreen"), main="Zostali \n ochrona online", cex.names=0.5)
+
+#barplot(table(odeszli$`kopia zapasowa online`), col=c("indianred2","sandybrown","lawngreen"), main="Odeszli \n kopia zapasowa online", cex.names=0.5)
+
+#barplot(table(zostali$`kopia zapasowa online`), col=c("indianred2","sandybrown","lawngreen"), main="Zostali \n kopia zapasowa online", cex.names=0.5)
+
+#barplot(table(odeszli$`ochrona urządzenia`), col=c("indianred2","sandybrown","lawngreen"), main="Odeszli \n ochrona urządzenia", cex.names=0.5)
+
+#barplot(table(zostali$`ochrona urządzenia`), col=c("indianred2","sandybrown","lawngreen"), main="Zostali \n ochrona urządzenia", cex.names=0.5)
+
+#barplot(table(odeszli$`wsparcie techniczne`), col=c("indianred2","sandybrown","lawngreen"), main="Odeszli \n wsparcie techniczne", cex.names=0.5)
+
+#barplot(table(zostali$`wsparcie techniczne`), col=c("indianred2","sandybrown","lawngreen"), main="Zostali \n wsparcie techniczne", cex.names=0.5)
+
+#barplot(table(odeszli$`telewizja strumieniowa`), col=c("indianred2","sandybrown","lawngreen"), main="Odeszli \n telewizja strumieniowa", cex.names=0.5)
+
+#barplot(table(zostali$`telewizja strumieniowa`), col=c("indianred2","sandybrown","lawngreen"), main="Zostali \n telewizja strumieniowa", cex.names=0.5)
+
+#barplot(table(odeszli$`filmy strumieniowe`), col=c("indianred2","sandybrown","lawngreen"), main="Odeszli \n filmy strumieniowe", cex.names=0.5)
+
+#barplot(table(zostali$`filmy strumieniowe`), col=c("indianred2","sandybrown","lawngreen"), main="Zostali \n filmy strumieniowe", cex.names=0.5)
+
+barplot(table(odeszli$umowa), col=c("indianred2","sandybrown","lawngreen"), main="Odeszli \n umowa", cex.names=0.3)
+
+barplot(table(zostali$umowa), col=c("indianred2","sandybrown","lawngreen"), main="Zostali \n umowa", cex.names=0.3)
+
+```
+
+Z rysunku 15 jasno wynika, że pośród grupy klientów którzy zrezygnowali z usług firmy przeważającą metodą płatności były czeki elektroniczne. 
+
+Rysunek 16 mówi nam, że około 75% klientów odchodzących z analizowanej firmy korzystało z faktur online. 
+
+Na rysunku 17 widzimy, że znaczna większość klientów opuszczających firmę wybrało internet światłowodowy, natomiast między klientami lojalnymi nie ma aż tak widocznej różnicy w typach usług internetowych. 
+
+Dzięki rysunkowi 18 możemy stwierdzić, że klienci którzy wybierają kontrakty dłuższe niż te z miesiąca na miesiąc, o wiele rzadziej z nich rezygnują.
+
+
+## Podsumowanie
+
+Na podstawie przeprowadzonej analizy można zauważyć, że aż 25% klientów rezygnuje. Ważną obserwacją było także to, że większość rezygnujących, to klienci, którzy zdecydowali się na umowy krótkookresowe. Natomiast płeć nie odgrywa roli, jeśli chodzi o klientów lojalnych i nielojalnych [Rysunek 14]. Zauważone zostało też, że osoby nieposiadające statusu seniora mają znaczną przewagę nad tymi posiadającymi. Na początkowych wykresach ukazany został duży rozrzut, jeśli chodzi o długość trwania usług. Co ciekawe jednak, żadna zmienna nie była z drugą w relacji liniowej. Najbliżej tego były zmienne odpowiadające długości lojalności klienta do kosztów łącznych, co jest spójne z oczekiwaniami. Następnie przeanalizowane zostały dane z podziałem na klientów, którzy odeszli oraz tych, którzy zostali. Mogliśmy dzięki temu zauważyć, że większość lojalnych klientów korzystała z wielu usług, podczas gdy osoby, które odstąpiły od umowy korzystały z mocno ograniczonej oferty. 
+
+Analizując dane dało się zobserwować wiele cech klientów. Były w tym zmienne, które charakteryzowały się tym, że klienci każdą z możlwiych opcji wybierali z tą samą czestotliwością. Wiemy także korzystając z Tabeli 2., że klienci korzystają z usług firmy bez względu na zmienne takie jak posiadanie partnera, płeć czy utrzymywanie innych. Jest do dobrą oznaką, ponieważ oznacza to, że oferta dociera do każdego typu klienta. Możemy też zauważyć, że jedną z najchetniej wybieranych usług jest internet, który zdecydowało się wykupić ponad połowa klientów. Następną najchętniej wykorzystywaną usługą jest obsługa wielu linii telefonicznych oraz kopia zapasowa online. Cenną informacją jest także fakt, że większość decyduje się na faktury elektorniczne, co może być powiązane z wiekiem klientów. 
+
+Klienci często odchodzą ze względu na krótkie okresy kontraktów (około 87% klientów, którzy odeszli miało kontrakty miesięczne [Rysunek 18]). Firma może spróbować naprawić ten problem wprowadzając więcej opcji kontraktowych, na przykład taką trwającą 3 miesiące. Takie rozwiązanie może sprawić, że klienci rzadziej będą zauważać pieniądze upływające z ich kont, a kontrakt nie będzie na tyle długi, żeby bawiali się czy z niego w pełni wykorzystają. Ewentualnie, jeśli firma nie chce wprowadzać nowych czasowych kontraktów to można rozważyć lekkie dostosowanie cen, ponieważ na rysunkach 10-13 przy miesięcznych opłatach widać, że klienci, którzy decydują się na niższe stawki chętniej zostają przy firmie. W ostateczności można pomyśleć o wprowadzeniu atrakcyjnych ofert startowych dla nowych klientów. Pozwoliłoby to uzyskać firmie nowych użytkowników, a im dłużej udałoby się ich w niej przetrzymać, tym mniej prawdopodobne będzie ich odejście (z danych przedstawiających zmienną czas trwania wynika, że działa to trochę jak siła nawyku)
+

@@ -1,0 +1,1134 @@
+---
+title: "Raport 3"
+author: "Olga Foriasz 277529, Szymon Smoła 282252"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    fig_caption: true
+    fig_width: 5
+    fig_height: 4
+    number_sections: true
+  html_document:
+    toc: true
+    df_print: paged
+header-includes:
+- \usepackage[OT4]{polski}
+- \usepackage[utf8]{inputenc}
+- \usepackage{graphicx}
+- \usepackage{float}
+subtitle: Eksploracja danych
+fontsize: 12pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+library(mlbench)
+library(class)
+library(arules)
+library(knitr)
+library(kableExtra)
+library(e1071)
+library(rpart)
+library(rpart.plot)
+library(ipred)
+library(ggplot2)
+library(gridExtra)
+```
+
+# Klasyfikacja na bazie modelu regresji liniowej
+
+## Analizowane dane
+
+```{r dane_iris, echo=FALSE}
+
+data(iris)
+colnames(iris) <- c("SL","SW","PL","PW","Species")
+#str(iris)
+#colSums(is.na(iris))
+```
+
+W pierwszej części raportu będziemy korzystać z ramki danych **iris** składającej się z:
+ * trzech klas dzielących nasze obserwacje (Setosa, Versicolor, Virginica)
+ * czterech zmiennych objaśniających (Petal Length, Petal Width, Sepal Length, Sepal Width), które dla uproszczenia zapiszemy jako PL, PW, SL, SW
+ * stu pięćdziesięciu rekordów bez brakujących wartości
+
+## Podział danych na zbiór uczący i testowy, konstrukcja klasyfikatora i wyznaczenie prognoz
+
+Przeprowadzono losowy podział danych na **zbiór uczący** i **zbiór testowy** w proporcji **2:1**
+
+```{r podzial_na_uczacy_i_testowy}
+
+set.seed(123)
+n <- nrow(iris)
+learning.set.index <- sample(1:n,2/3*n)
+
+# Zbiór uczący
+learning.set <- iris[learning.set.index,]
+
+# Zbiór testowy
+test.set <- iris[-learning.set.index,]
+```
+
+Korzystając z funkcji **lm()** otrzymnao trzy modele regresji liniowej z danych uczących. Na ich podstawie wyznaczono prognozowane etykietki klas dla przypadków ze zbioru uczącego i testowego. Za ich pomocą otrzymano macierze błędu dla każdego ze zbiorów.
+
+```{r lm, echo=FALSE}
+
+Y1 <- as.numeric(learning.set$Species == "setosa")
+Y2 <- as.numeric(learning.set$Species == "versicolor")
+Y3 <- as.numeric(learning.set$Species == "virginica")
+
+irysy1 <- cbind(learning.set[,1:4],Y1)
+irysy2 <- cbind(learning.set[,1:4],Y2)
+irysy3 <- cbind(learning.set[,1:4],Y3)
+
+irysy1.lm <- lm(Y1~., data=irysy1)
+irysy2.lm <- lm(Y2~., data=irysy2)
+irysy3.lm <- lm(Y3~., data=irysy3)
+
+pred1.lm  <- predict(irysy1.lm, irysy1)
+pred2.lm  <- predict(irysy2.lm, irysy2)
+pred3.lm  <- predict(irysy3.lm, irysy3)
+
+prognoza <- rep("setosa", length(pred1.lm) )
+prognoza[pred2.lm > pmax(pred1.lm,pred3.lm)] = "versicolor"
+prognoza[pred3.lm > pmax(pred1.lm,pred2.lm)] = "virginica"
+
+conf.matrix <- table(prognoza, learning.set$Species)
+accuracy <- sum(diag(conf.matrix))/sum(conf.matrix)
+```
+
+```{r lm_test, echo=FALSE}
+
+Y4 <- as.numeric(test.set$Species == "setosa")
+Y5 <- as.numeric(test.set$Species == "versicolor")
+Y6 <- as.numeric(test.set$Species == "virginica")
+
+irysy4 <- cbind(test.set[,1:4],Y4)
+irysy5 <- cbind(test.set[,1:4],Y5)
+irysy6 <- cbind(test.set[,1:4],Y6)
+
+pred4.lm  <- predict(irysy1.lm, irysy4)
+pred5.lm  <- predict(irysy2.lm, irysy5)
+pred6.lm  <- predict(irysy3.lm, irysy6)
+
+prognoza_test <- rep("setosa", length(pred4.lm) )
+prognoza_test[pred5.lm > pmax(pred4.lm,pred6.lm)] = "versicolor"
+prognoza_test[pred6.lm > pmax(pred4.lm,pred5.lm)] = "virginica"
+
+conf.matrix_test <- table(prognoza_test, test.set$Species)
+accuracy_test <- sum(diag(conf.matrix_test))/sum(conf.matrix_test)
+```
+
+```{r macierze_bledu, echo=FALSE}
+
+conf.matrix %>%
+  as.data.frame.matrix() %>%
+  kable(caption = "Macierz pomyłek - zbiór uczący") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                full_width = FALSE) %>%
+  add_header_above(c(" ", "Rzeczywiste klasy" = 3)) %>%
+  column_spec(1, color = "white", background = "#5C7EAF", bold=TRUE) %>%
+  row_spec(0, bold = TRUE)
+
+conf.matrix_test %>%
+  as.data.frame.matrix() %>%
+  kable(caption = "Macierz pomyłek - zbiór testowy") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                full_width = FALSE) %>%
+  add_header_above(c(" ", "Rzeczywiste klasy" = 3)) %>%
+  column_spec(1, color = "white", background = "#5C7EAF", bold = TRUE) %>%
+  row_spec(0, bold = TRUE)
+```
+
+Na podstawie wyznaczonych macierzy błędu widzimy, że klasyfikacja obiektów klasy **setosa** przebiega bez problemu, a obiekty klas **versicolor** oraz **virginica** często są klasyfikowane niepoprawnie. Widoczny pomiędzy tymi klasami jest efekt maskowania. Dokładność modelu regresji liniowej dla zbioru uczącego wynosi `r accuracy`, a dla zbioru testowego `r accuracy_test`.
+
+## Budowa modelu liniowego dla rozszerzonej przestrzeni cech
+
+Powtórzono konstrukcję modelu i ocenę jego dokładności, tym razem budując model
+regresji po uzupełnieniu wyjściowych cech o składniki wielomianowe stopnia 2 (tzn.: PL^2, PW^2, SL^2, SW^2, PL·PW, PL·SW, PL·SL, PW·SL, PW·SW, SL·SW). Użyto tego samego ziarna generacji losowej w celu rozważenia poprawy nowego modelu.
+
+```{r lm_kw, echo=FALSE}
+
+set.seed(123)
+iris.new <- iris 
+colnames(iris.new) <- c("SL","SW","PL","PW","Species")
+iris.new <- transform(iris.new, SL.SW=SL*SW,  PL.PW=PL*PW, PL.SL=PL*SL, PL.SW=PL*SW, PW.SW=PW*SW, PW.SL=PW*SL, PL2=PL*PL, PW2=PW*PW, SL2=SL*SL, SW2=SW*SW)
+
+learning.set.kw.index <- sample(1:n,2/3*n)
+learning.set.kw <- iris.new[learning.set.kw.index,]
+test.set.kw <- iris.new[-learning.set.kw.index,]
+
+Y1 <- as.numeric(learning.set.kw$Species == "setosa")
+Y2 <- as.numeric(learning.set.kw$Species == "versicolor")
+Y3 <- as.numeric(learning.set.kw$Species == "virginica")
+
+irysy1kw <- cbind(learning.set.kw[,-5],Y1)
+irysy2kw <- cbind(learning.set.kw[,-5],Y2)
+irysy3kw <- cbind(learning.set.kw[,-5],Y3)
+
+irysy1kw.lm <- lm(Y1~., data=irysy1kw)
+irysy2kw.lm <- lm(Y2~., data=irysy2kw)
+irysy3kw.lm <- lm(Y3~., data=irysy3kw)
+
+pred1kw.lm  <- predict(irysy1kw.lm, irysy1kw)
+pred2kw.lm  <- predict(irysy2kw.lm, irysy2kw)
+pred3kw.lm  <- predict(irysy3kw.lm, irysy3kw)
+
+prognoza_kw <- rep("setosa", length(pred1kw.lm) )
+prognoza_kw[pred2kw.lm > pmax(pred1kw.lm,pred3kw.lm)] = "versicolor"
+prognoza_kw[pred3kw.lm > pmax(pred1kw.lm,pred2kw.lm)] = "virginica"
+
+conf.matrix_kw <- table(prognoza_kw, learning.set.kw$Species)
+accuracy_kw <- sum(diag(conf.matrix_kw))/sum(conf.matrix_kw)
+```
+
+```{r lm_test_kw, echo=FALSE}
+
+Y4kw <- as.numeric(test.set.kw$Species == "setosa")
+Y5kw <- as.numeric(test.set.kw$Species == "versicolor")
+Y6kw <- as.numeric(test.set.kw$Species == "virginica")
+
+irysy4kw <- cbind(test.set.kw[,-5],Y4kw)
+irysy5kw <- cbind(test.set.kw[,-5],Y5kw)
+irysy6kw <- cbind(test.set.kw[,-5],Y6kw)
+
+pred4kw.lm  <- predict(irysy1kw.lm, irysy4kw)
+pred5kw.lm  <- predict(irysy2kw.lm, irysy5kw)
+pred6kw.lm  <- predict(irysy3kw.lm, irysy6kw)
+
+prognoza_test_kw <- rep("setosa", length(pred4kw.lm) )
+prognoza_test_kw[pred5kw.lm > pmax(pred4kw.lm,pred6kw.lm)] = "versicolor"
+prognoza_test_kw[pred6kw.lm > pmax(pred4kw.lm,pred5kw.lm)] = "virginica"
+
+conf.matrix_test_kw <- table(prognoza_test_kw, test.set.kw$Species)
+accuracy_test_kw <- sum(diag(conf.matrix_test_kw))/sum(conf.matrix_test_kw)
+```
+
+```{r macierze_bledu_kw, echo=FALSE}
+
+conf.matrix_kw %>%
+  as.data.frame.matrix() %>%
+  kable(caption = "Macierz pomyłek - zbiór uczący") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                full_width = FALSE) %>%
+  add_header_above(c(" ", "Rzeczywiste klasy" = 3)) %>%
+  column_spec(1, color = "white", background = "#5C7EAF", bold = TRUE) %>%
+  row_spec(0, bold = TRUE)
+
+conf.matrix_test_kw %>%
+  as.data.frame.matrix() %>%
+  kable(caption = "Macierz pomyłek - zbiór testowy") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                full_width = FALSE) %>%
+  add_header_above(c(" ", "Rzeczywiste klasy" = 3)) %>%
+  column_spec(1, color = "white", background = "#5C7EAF", bold = TRUE) %>%
+  row_spec(0, bold = TRUE)
+```
+
+Nowy model jest zauważalnie dokładniejszy od poprzedniego. W zbiorze uczącym popełnił on tylko jeden błąd klasyfikując obiekt typu **virginica** jako typ **versicolor**. W zbiorze testowym podobnie zaobserwowano tylko jeden błąd (tym razem przypisano obiekt typu **versicolor** do typu **virginica**). Dokładność poprawionego modelu regresji liniowej dla **zbioru uczącego** wynosi `r accuracy_kw`, a dla **zbioru testowego** `r accuracy_test_kw`.
+
+## Wnioski 
+
+Prostota zbioru danych **iris** pozwala na dobre działanie modelu regresji liniowej lecz widoczny jest w nim efekt maskowania klas. Model liniowy dla rozszerzonej przestrzeni cech zwiększa dokładność wyników klasyfikacji.
+
+# Porównanie metod klasyfikacji
+
+## Wybór i zapoznanie się z danymi
+```{r, echo=FALSE}
+data(PimaIndiansDiabetes2)
+colnames(PimaIndiansDiabetes2) <- polskie_nazwy <- c(
+  "ciaze",
+  "glukoza",
+  "cisnienie",
+  "triceps",
+  "wiek",
+  "BMI",
+  "dziedziczenie",
+  "wiek",
+  "cukrzyca"
+)
+
+##str(PimaIndiansDiabetes2)
+##colSums(is.na(PimaIndiansDiabetes2))
+dane <- na.omit(PimaIndiansDiabetes2)
+colnames(dane) <- polskie_nazwy <- c(
+  "ciaze",
+  "glukoza",
+  "cisnienie",
+  "triceps",
+  "insulina",
+  "BMI",
+  "dziedziczenie",
+  "wiek",
+  "cukrzyca"
+)
+```
+
+Nasze dane składają się z 768 obserwacji i 9 cech. Mamy jedną zmienną cukrzyca, która dzieli pacjentów na dwie grupy - chorych i zdrowych(neg/pos). Wszystkie zmienne są prawidłowych typów. W danych brakujące wartości oznaczone są jako NA. W nastepujących kolummach jest ich: glukoza - 5, cisnienie - 35, triceps - 227, insulina - 374, BMI  - 11.
+
+## Analiza
+### Wstępna analiza danych
+
+```{r, echo=FALSE, fig.cap="\\label{rozklad_klas}Rozkład klas"}
+klasa.tab <- prop.table(table(dane$cukrzyca))
+barplot(klasa.tab, col=c("#FFB7CE","#E6CEFF"))
+title("Częstości klas")
+
+##blad klasyfikacji
+klasa.licznosci <- table(dane$cukrzyca)
+max_licznosc <- max(klasa.licznosci)
+n <- sum(klasa.licznosci)
+blad_klasyfikacji <- (n - max_licznosc) / n * 100
+```
+Widzimy na Rysunku \ref{rozklad_klas}, że rozkład klas nie jest symetryczny. Istnieje widoczna, duża dysproporcja pomiędzy klasami. Prawie dwukrotnie więcej osób należy do grupy neg (tzn. osób zdrowych). Przypisując wszystkie obiekty do jednej, najczęściej występującej klasy otrzymalibyśmy błąd `r round(blad_klasyfikacji,2)`%.
+
+Na poniższym rysunku, przedstawimy jak rozkładają się zmienne. Ma to na celu sprawdzenie, czy standarzyacja w niektórych przypadkach może być konieczna. 
+```{r, echo=FALSE, fig.cap="\\label{rozklad}Rozkład przed standaryzacją"}
+numeric.features <- sapply(dane, is.numeric)
+data.pca <- dane[, numeric.features]
+
+mar.old <- c(5, 4, 4, 2) + 0.1 #marginesy na wykresie
+par(las=3, mar=c(8,4,4,2)+0.1)
+boxplot(data.pca, col=rainbow(18))
+par(las=1, mar=mar.old)
+
+```
+
+Widoczne na rysunku \ref{rozklad} dane cechują się istotną zmiennością poszczególnych cech. Może to oznaczać potrzebę standaryzacji, zatem zastosujemy ją dla naszych danych, dam gdzie będzie to potrzebne.
+```{r,echo=FALSE, fig.cap="\\label{rozklad_stand}Rozkład po standaryzacji"}
+dane_st <- scale(data.pca)
+mar.old <- c(5, 4, 4, 2) + 0.1 #marginesy na wykresie
+par(las=3, mar=c(8,4,4,2)+0.1)
+boxplot(scale(data.pca), col=rainbow(18))
+par(las=1, mar=mar.old)
+```
+ Rysunek \ref{rozklad_stand} przedstawia dane po standaryzacji.
+
+### Badanie zdolności dykryminacyjnej zmiennych
+```{r, echo=FALSE, warning=FALSE, fig.cap="\\label{zdolnosci}Zdolności dyskryminacyjne"}
+
+names(dane)[names(dane) == "diabetes"] <- "cukrzyca"
+
+p1 <- ggplot(dane, aes(x = cukrzyca, fill=cukrzyca, y=ciaze)) + geom_boxplot() + theme(legend.position = "none") +labs(x="")
+
+p2 <- ggplot(dane, aes(x = cukrzyca, fill=cukrzyca, y=glukoza)) + geom_boxplot() + theme(legend.position = "none")+labs(x="")
+
+p3 <- ggplot(dane, aes(x = cukrzyca, fill=cukrzyca, y=cisnienie)) + geom_boxplot() + theme(legend.position = "none") + labs(x="")
+
+p4 <- ggplot(dane, aes(x = cukrzyca, fill=cukrzyca, y=triceps)) + geom_boxplot() + theme(legend.position = "none")+labs(x="")
+
+p5 <- ggplot(dane, aes(x = cukrzyca, fill=cukrzyca, y=insulina)) + geom_boxplot() + theme(legend.position = "none")+labs(x="")
+
+p6 <- ggplot(dane, aes(x = cukrzyca, fill=cukrzyca, y=BMI)) + geom_boxplot() + theme(legend.position = "none")+labs(x="")
+
+p7 <- ggplot(dane, aes(x = cukrzyca, fill=cukrzyca, y=dziedziczenie)) + geom_boxplot() + theme(legend.position = "none")+labs(x="")
+
+p8 <- ggplot(dane, aes(x = cukrzyca, fill=cukrzyca, y=wiek)) + geom_boxplot() + theme(legend.position = "none")+labs(x="")
+
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, ncol = 4)
+
+```
+Z Rysunku \ref{zdolnosci} możemy odczytać, które zmienne mają najlepsze zdolności dyskryminacyjne. Do tych zmiennych należą glukoza, insulina oraz wiek - co jest zgodne z oczekiwaniami. Te zmienne są najbardziej powiązane ze zmienna cukrzyca, dlatego wyniki, które otrzymaliśmy są takie, jakich się spodziewano.
+
+
+### Metoda k-najbliższych sąsiadów
+Do tej metody, dane zostały zestandaryzowane, ponieważ opiera się ona na odelgłościach, gdzie zmienne o większych zmiennościach dominowałyby. Aby uniknąć takiej sytuacji zastosowana została standaryzacja.
+
+####  Ocena dokładności klasyfikacji - liczba sąsiadów
+
+```{r,echo=FALSE}
+
+data(PimaIndiansDiabetes2)
+dane <- na.omit(PimaIndiansDiabetes2)
+
+# Zmiana nazw kolumn na polskie
+colnames(dane) <- c(
+  "ciaze",
+  "glukoza",
+  "cisnienie",
+  "triceps",
+  "insulina",
+  "BMI",
+  "dziedziczenie",
+  "wiek",
+  "cukrzyca"
+)
+
+numeric.features <- sapply(dane, is.numeric)
+data.pca <- dane[, numeric.features]
+dane_stand <- scale(data.pca)
+
+dane_stand_df <- as.data.frame(dane_stand)
+dane_stand_df$cukrzyca <- dane$cukrzyca
+
+set.seed(123)
+n <- nrow(dane_stand_df)
+learning.set.index <- sample(1:n, 2/3 * n)
+learning.set <- dane_stand_df[learning.set.index, ]
+test.set <- dane_stand_df[-learning.set.index, ]
+
+etykietki.rzecz <- test.set$cukrzyca
+etykietki.prog <- knn(learning.set[, -9], test.set[, -9], cl = learning.set$cukrzyca, k = 2)
+
+macierz_pomylek_test <- table(etykietki.prog, etykietki.rzecz)
+prop_tab_test <- prop.table(macierz_pomylek_test, margin = 2) * 100
+prop_tab_test_rounded <- round(prop_tab_test, 0)
+
+kable(prop_tab_test_rounded, caption = "Procentowa macierz pomyłek - zbiór testowy (k=2)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+n.test <- nrow(test.set)
+blad_testowy <- (n.test - sum(diag(macierz_pomylek_test))) / n.test
+
+etykietki.uczace.rzecz <- learning.set$cukrzyca
+etykietki.uczace.prog <- knn(learning.set[, -9], learning.set[, -9], cl = learning.set$cukrzyca, k = 2)
+
+macierz_pomylek_ucz <- table(etykietki.uczace.prog, etykietki.uczace.rzecz)
+prop_tab_ucz <- prop.table(macierz_pomylek_ucz, margin = 2) * 100
+prop_tab_ucz_rounded <- round(prop_tab_ucz, 0)
+
+kable(prop_tab_ucz_rounded, caption = "Procentowa macierz pomyłek - zbiór uczący (k=2)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+n.uczacy <- nrow(learning.set)
+blad_uczacy <- (n.uczacy - sum(diag(macierz_pomylek_ucz))) / n.uczacy
+cat("Błąd klasyfikacji na zbiorze uczącym:", round(blad_uczacy, 3), "\n")
+cat("Błąd klasyfikacji na zbiorze testowym:", round(blad_testowy, 3), "\n")
+
+```
+
+```{r, echo=FALSE}
+
+## dla 5 sąsiadów
+
+
+dane_stand_df <- as.data.frame(dane_stand)
+dane_stand_df$cukrzyca <- dane$cukrzyca
+
+set.seed(123)
+n <- nrow(dane_stand_df)
+learning.set.index <- sample(1:n, 2/3 * n)
+learning.set <- dane_stand_df[learning.set.index, ]
+test.set <- dane_stand_df[-learning.set.index, ]
+
+etykietki.rzecz <- test.set$cukrzyca
+etykietki.prog <- knn(learning.set[, -9], test.set[, -9], cl = learning.set$cukrzyca, k = 5)
+
+macierz_pomylek_test <- table(etykietki.prog, etykietki.rzecz)
+prop_tab_test <- prop.table(macierz_pomylek_test, margin = 2) * 100
+prop_tab_test_rounded <- round(prop_tab_test, 0)
+
+kable(prop_tab_test_rounded, caption = "Procentowa macierz pomyłek - zbiór testowy (k=5)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+n.test <- nrow(test.set)
+blad_testowy <- (n.test - sum(diag(macierz_pomylek_test))) / n.test
+
+etykietki.uczace.rzecz <- learning.set$cukrzyca
+etykietki.uczace.prog <- knn(learning.set[, -9], learning.set[, -9], cl = learning.set$cukrzyca, k = 5)
+
+macierz_pomylek_ucz <- table(etykietki.uczace.prog, etykietki.uczace.rzecz)
+prop_tab_ucz <- prop.table(macierz_pomylek_ucz, margin = 2) * 100
+prop_tab_ucz_rounded <- round(prop_tab_ucz, 0)
+
+kable(prop_tab_ucz_rounded, caption = "Procentowa macierz pomyłek - zbiór uczący (k=5)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+n.uczacy <- nrow(learning.set)
+blad_uczacy <- (n.uczacy - sum(diag(macierz_pomylek_ucz))) / n.uczacy
+cat("Błąd klasyfikacji na zbiorze uczącym:", round(blad_uczacy, 3), "\n")
+cat("Błąd klasyfikacji na zbiorze testowym:", round(blad_testowy, 3), "\n")
+
+```
+
+```{r, echo=FALSE}
+
+## dla 7 sąsiadów
+
+numeric.features <- sapply(dane, is.numeric)
+data.pca <- dane[, numeric.features]
+dane_stand <- scale(data.pca)
+
+dane_stand_df <- as.data.frame(dane_stand)
+dane_stand_df$cukrzyca <- dane$cukrzyca
+
+set.seed(121)
+n <- nrow(dane_stand_df)
+learning.set.index <- sample(1:n, 2/3 * n)
+learning.set <- dane_stand_df[learning.set.index, ]
+test.set <- dane_stand_df[-learning.set.index, ]
+
+etykietki.rzecz <- test.set$cukrzyca
+etykietki.prog <- knn(learning.set[, -9], test.set[, -9], cl = learning.set$cukrzyca, k = 7)
+
+macierz_pomylek_test <- table(etykietki.prog, etykietki.rzecz)
+prop_tab_test <- prop.table(macierz_pomylek_test, margin = 2) * 100
+prop_tab_test_rounded <- round(prop_tab_test, 0)
+
+kable(prop_tab_test_rounded, caption = "Procentowa macierz pomyłek - zbiór testowy (k=7)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+n.test <- nrow(test.set)
+blad_testowy <- (n.test - sum(diag(macierz_pomylek_test))) / n.test
+
+etykietki.uczace.rzecz <- learning.set$cukrzyca
+etykietki.uczace.prog <- knn(learning.set[, -9], learning.set[, -9], cl = learning.set$cukrzyca, k = 7)
+
+macierz_pomylek_ucz <- table(etykietki.uczace.prog, etykietki.uczace.rzecz)
+prop_tab_ucz <- prop.table(macierz_pomylek_ucz, margin = 2) * 100
+prop_tab_ucz_rounded <- round(prop_tab_ucz, 0)
+
+kable(prop_tab_ucz_rounded, caption = "Procentowa macierz pomyłek - zbiór uczący (k=7)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+n.uczacy <- nrow(learning.set)
+blad_uczacy <- (n.uczacy - sum(diag(macierz_pomylek_ucz))) / n.uczacy
+cat("Błąd klasyfikacji na zbiorze uczącym:", round(blad_uczacy, 3), "\n")
+cat("Błąd klasyfikacji na zbiorze testowym:", round(blad_testowy, 3), "\n")
+```
+
+Korzystając z Tabel o numerach 5-10, które kolejno przedstawiają macierz pomyłek dla 2,5 oraz 7 najbliżyszch sąsiadów oraz wyliczonych błędach klasyfikacyjnych z rozdzieleniem na zbiór testowy oraz uczący, możemy zaobserwować, że najlepszy wynik - najmniejszy błąd na zbiorze uczącym wyszedł dla k=5 - 13%. Natomiast przy liczbie sąsiadów równej 7 wynosił więcej (16,1%) niż przy równej 2 (14,9%). Zbiór testowy także miał najmniejszy błąd klasyfikacyjny przy k=5, wynoszący 26,7%, a także analogicznie największy dla k=7 - aż 32,8%
+
+
+####  Ocena dokładności klasyfikacji - wybrany podzbiór zmiennych
+
+Następnie porównamy dokładność klasyfikacji, wybierając tylko niektóre zmienne, przy ustalonej liczbie sąsiadów - 5. :
+
+Zbiór składający się ze zmiennych: glukoza, wiek, BMI oraz dziedziczenie
+
+```{r, echo=FALSE, warning=FALSE}
+numeric.features <- sapply(dane, is.numeric)
+data.pca <- dane[, numeric.features]
+dane_stand <- scale(data.pca)
+dane_stand_df <- as.data.frame(dane_stand)
+dane_stand_df$cukrzyca <- dane$cukrzyca
+dane_filtrowane <- dane_stand_df[, c("glukoza", "wiek", "BMI", "dziedziczenie", "cukrzyca")]
+n <- nrow(dane_filtrowane)
+set.seed(123)
+learning.set.index <- sample(1:n, 2/3 * n)
+learning.set <- dane_filtrowane[learning.set.index, ]
+test.set <- dane_filtrowane[-learning.set.index, ]
+
+etykietki.rzecz <- test.set$cukrzyca
+etykietki.prog <- knn(learning.set[,-5], test.set[,-5], learning.set$cukrzyca, k=5)
+
+macierz_pomylek_test <- table(etykietki.prog, etykietki.rzecz)
+prop_tab_test <- prop.table(macierz_pomylek_test, margin = 2) * 100
+prop_tab_test_rounded <- round(prop_tab_test, 0)
+
+kable(prop_tab_test_rounded, caption = "Procentowa macierz pomyłek - zbiór testowy (k=5)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+n.test <- nrow(test.set)
+blad_testowy <- (n.test - sum(diag(macierz_pomylek_test))) / n.test
+
+etykietki.uczace.rzecz <- learning.set$cukrzyca
+etykietki.uczace.prog <- knn(learning.set[,-5], learning.set[,-5], cl = learning.set$cukrzyca, k=5)
+
+macierz_pomylek_ucz <- table(etykietki.uczace.prog, etykietki.uczace.rzecz)
+prop_tab_ucz <- prop.table(macierz_pomylek_ucz, margin = 2) * 100
+prop_tab_ucz_rounded <- round(prop_tab_ucz, 0)
+
+kable(prop_tab_ucz_rounded, caption = "Procentowa macierz pomyłek - zbiór uczący (k=5)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+n.uczacy <- nrow(learning.set)
+blad_uczacy <- (n.uczacy - sum(diag(macierz_pomylek_ucz))) / n.uczacy
+
+cat("Błąd klasyfikacji na zbiorze uczącym:", round(blad_uczacy, 3), "\n")
+cat("Błąd klasyfikacji na zbiorze testowym:", round(blad_testowy, 3), "\n")
+
+```
+Zbiór składający się ze zmiennych: glukoza oraz wiek 
+
+```{r, echo=FALSE, warning=FALSE}
+data.pca <- dane[, numeric.features]
+dane_stand <- scale(data.pca)
+dane_stand_df <- as.data.frame(dane_stand)
+dane_stand_df$cukrzyca <- dane$cukrzyca
+dane_filtrowane <- dane[, c("glukoza", "wiek", "cukrzyca")]
+
+n <- nrow(dane_filtrowane)
+set.seed(123)
+learning.set.index <- sample(1:n, 2/3 * n)
+learning.set <- dane_filtrowane[learning.set.index, ]
+test.set <- dane_filtrowane[-learning.set.index, ]
+
+etykietki.rzecz <- test.set$cukrzyca
+etykietki.prog <- knn(learning.set[,-3], test.set[,-3], learning.set$cukrzyca, k=5)
+
+macierz_pomylek_test <- table(etykietki.prog, etykietki.rzecz)
+prop_tab_test <- prop.table(macierz_pomylek_test, margin = 2) * 100
+prop_tab_test_rounded <- round(prop_tab_test, 0)
+
+kable(prop_tab_test_rounded, caption = "Procentowa macierz pomyłek - zbiór testowy (k=5)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+n.test <- nrow(test.set)
+blad_testowy <- (n.test - sum(diag(macierz_pomylek_test))) / n.test
+
+etykietki.uczace.rzecz <- learning.set$cukrzyca
+etykietki.uczace.prog <- knn(learning.set[,-3], learning.set[,-3], cl = learning.set$cukrzyca, k=5)
+
+macierz_pomylek_ucz <- table(etykietki.uczace.prog, etykietki.uczace.rzecz)
+prop_tab_ucz <- prop.table(macierz_pomylek_ucz, margin = 2) * 100
+prop_tab_ucz_rounded <- round(prop_tab_ucz, 0)
+
+kable(prop_tab_ucz_rounded, caption = "Procentowa macierz pomyłek - zbiór uczący (k=5)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+n.uczacy <- nrow(learning.set)
+blad_uczacy <- (n.uczacy - sum(diag(macierz_pomylek_ucz))) / n.uczacy
+
+cat("Błąd klasyfikacji na zbiorze uczącym:", round(blad_uczacy, 3), "\n")
+cat("Błąd klasyfikacji na zbiorze testowym:", round(blad_testowy, 3), "\n")
+```
+Możemy zatem zobaczyć, że ograniczenie się jedynie do dwóch zmiennych mających największe zdolności dyskryminujące, wcale nie poprawia wyników błędów klasyfikacyjnych. Dla zbioru 4 zmiennych błąd dla zbioru testowego i uczącego wynosił odpowiednio 26,7% oraz 15,7%, podczas gdy dla zbioru tylko dwóch zmiennych - glukozy oraz wieku - także odpowiednio 25,2% oraz 18,4%
+
+#### Wnioski dla metody k-NN: 
+Dane w użytej metodzie zostały podzielone na zbiór uczący i testowy w proporcjach 1:2, a jako miary oceny użyto macierzy pomyłek oraz błędów klasyfikacji. Na podstawie przeprowadzonych eksperymentów z metodą k-najbliższych sąsiadów (k-NN) można stwierdzić, że skuteczność klasyfikacji zależy zarówno od liczby sąsiadów (k), jak i od doboru zmiennych. 
+
+Wyniki pokazały, że wielkość błędu zależy od prawidłowego doboru liczby sąsiadów. W naszych danych najlepszym parametrem k z liczb 2, 5 i 7, okazała się wartość k = 5. Wtedy osiągnięto najmniejszy błąd dla zbioru testowego - 26,7%, jak i uczącego - 13%.
+
+Dodatkowo sprawdzono skuteczność klasyfikacji przy użyciu tylko czterech najbardziej istotnych zmiennych (glukoza, wiek, BMI, dziedziczenie) oraz następnie jedynie dwóch (glukoza, wiek). Wyniki były najlepsze dla zbioru uczącego, gdy pod uwagę wzięto cały zbiór (13%), natomiast błąd dla zbioru testowego wyszedł najmniejszy dla zbioru dwóch zmiennych - 19,1%.
+
+### Naiwny Klasyfikator Bayesowski
+
+Najpierw wyliczyone zostają błędy klasyfikacyjne oraz macierze pomłek dla całego zbioru danych:
+
+```{r, echo=FALSE}
+dane <- na.omit(PimaIndiansDiabetes2)
+colnames(dane) <- polskie_nazwy <- c(
+  "ciaze",
+  "glukoza",
+  "cisnienie",
+  "triceps",
+  "insulina",
+  "BMI",
+  "dziedziczenie",
+  "wiek",
+  "cukrzyca"
+)
+set.seed(123)
+n <- nrow(dane)
+learn.indx <- sample(1:n, 2/3 * n)
+
+learn.set <- dane[learn.indx, ]
+test.set  <- dane[-learn.indx, ]
+
+model <- naiveBayes(cukrzyca ~ ., data = learn.set)
+
+prog.learn <- predict(model, learn.set)
+prog.test <- predict(model, test.set)
+
+rzecz.learn <- learn.set$cukrzyca
+rzecz.test  <- test.set$cukrzyca
+
+blad.learn <- mean(prog.learn != rzecz.learn)
+blad.test  <- mean(prog.test != rzecz.test)
+
+cat("Błąd klasyfikacji - zbiór uczący:", round(blad.learn, 3), "\n")
+cat("Błąd klasyfikacji - zbiór testowy:", round(blad.test, 3), "\n")
+
+model2_all <- naiveBayes(cukrzyca ~ ., data = dane)
+prog.all <- predict(model2_all, dane)
+rzecz.all <- dane$cukrzyca
+conf.matrix <- table(Rzeczywiste = rzecz.all, Predykcja = prog.all)
+
+
+conf_matrix_learn <- table(Predykcja = prog.learn, Rzeczywiste = rzecz.learn)
+prop_learn <- prop.table(conf_matrix_learn, margin = 2) * 100
+prop_learn_round <- round(prop_learn, 0)
+
+kable(prop_learn_round, caption = "Procentowa macierz pomyłek - zbiór uczący") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+conf_matrix_test <- table(Predykcja = prog.test, Rzeczywiste = rzecz.test)
+prop_test <- prop.table(conf_matrix_test, margin = 2) * 100
+prop_test_round <- round(prop_test, 0)
+
+kable(prop_test_round, caption = "Procentowa macierz pomyłek - zbiór testowy") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+```
+Następnie dla zbioru składającego się ze zmiennych: glukoza, wiek, BMI, dziedziczenie:
+
+```{r, echo=FALSE}
+podzbior1 <- c("glukoza", "wiek", "BMI", "dziedziczenie", "cukrzyca")
+dane1 <- dane[, podzbior1]
+set.seed(123)
+n <- nrow(dane)
+learn.indx <- sample(1:n, 2/3 * n)
+
+learn.set1 <- dane1[learn.indx, ]
+test.set1  <- dane1[-learn.indx, ]
+
+model1 <- naiveBayes(cukrzyca ~ ., data = learn.set1)
+
+# Prognozy
+prog.learn1 <- predict(model1, learn.set1)
+prog.test1  <- predict(model1, test.set1)
+
+# Rzeczywiste etykiety
+rzecz.learn1 <- learn.set1$cukrzyca
+rzecz.test1  <- test.set1$cukrzyca
+
+blad.learn <- mean(prog.learn1 != rzecz.learn1)
+blad.test  <- mean(prog.test1 != rzecz.test1)
+
+# Wyniki
+cat("Błąd klasyfikacji - zbiór uczący:", round(blad.learn, 3), "\n")
+cat("Błąd klasyfikacji - zbiór testowy:", round(blad.test, 3), "\n")
+
+conf_matrix_learn1 <- table(Predykcja = prog.learn1, Rzeczywiste = rzecz.learn1)
+prop_learn1 <- prop.table(conf_matrix_learn1, margin = 2) * 100
+prop_learn1_rounded <- round(prop_learn1, 0)
+
+kable(prop_learn1_rounded, caption = "Procentowa macierz pomyłek - zbiór uczący") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+conf_matrix_test1 <- table(Predykcja = prog.test1, Rzeczywiste = rzecz.test1)
+prop_test1 <- prop.table(conf_matrix_test1, margin = 2) * 100
+prop_test1_rounded <- round(prop_test1, 0)
+
+kable(prop_test1_rounded, caption = "Procentowa macierz pomyłek - zbiór testowy") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+```
+A także dla zbioru złożonego jedynie ze zmiennych glukoza oraz wiek:
+
+```{r, echo=FALSE}
+
+podzbior2 <- c("glukoza", "wiek", "cukrzyca")
+dane2 <- dane[, podzbior2]
+set.seed(123)
+n <- nrow(dane)
+learn.indx <- sample(1:n, 2/3 * n)
+
+learn.set2 <- dane2[learn.indx, ]
+test.set2  <- dane2[-learn.indx, ]
+
+model2 <- naiveBayes(cukrzyca ~ ., data = learn.set2)
+
+# Prognozy
+prog.learn2 <- predict(model2, learn.set2)
+prog.test2  <- predict(model2, test.set2)
+
+# Rzeczywiste etykiety
+rzecz.learn2 <- learn.set2$cukrzyca
+rzecz.test2  <- test.set2$cukrzyca
+
+# Błędy
+blad.learn <- mean(prog.learn2 != rzecz.learn2)
+blad.test  <- mean(prog.test2 != rzecz.test2)
+
+# Wyniki
+cat("Błąd klasyfikacji - zbiór uczący:", round(blad.learn, 3), "\n")
+cat("Błąd klasyfikacji - zbiór testowy:", round(blad.test, 3), "\n")
+
+conf_matrix_learn1 <- table(Predykcja = prog.learn1, Rzeczywiste = rzecz.learn1)
+prop_learn1 <- prop.table(conf_matrix_learn1, margin = 2) * 100
+prop_learn1_rounded <- round(prop_learn1, 0)
+
+kable(prop_learn1_rounded, caption = "Procentowa macierz pomyłek - zbiór uczący") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+conf_matrix_test1 <- table(Predykcja = prog.test1, Rzeczywiste = rzecz.test1)
+prop_test1 <- prop.table(conf_matrix_test1, margin = 2) * 100
+prop_test1_rounded <- round(prop_test1, 0)
+
+kable(prop_test1_rounded, caption = "Procentowa macierz pomyłek - zbiór testowy") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+```
+
+#### Wnioski dla Naiwnego Klasyfikatora Bayesowskiego: 
+
+Na podstawie przeprowadzonych testów można stwierdzić, że najlepsze wyniki klasyfikacji osiąga model wykorzystujący 4 zmienne – błąd klasyfikacji na zbiorze testowym wyniósł tylko 19,8%. Także ten model miał najniższy błąd na zbiorze uczącym, wyniósł on 21,5%.
+
+Najprostszy model, który używa tylko dwóch zmiennych (glukozy i insuliny), osiągnął błąd testowy 21,4% i błąd uczący 21,8%. Choć jego wyniki były stosunkowo stabilne, to dokładność była niższa niż w przypadku modelu z zestawem 4 zmiennych mających najlepsze zdolności dyskryminacyjne.
+
+Natomiast model używający wszystkich zmiennych miał największy błąd dla zbioru uczącego - aż 23,4%, natomiast dla zbioru testowego wynosił tyle samo co dla zbioru dwóch zmiennych - 21,4%.
+
+### Drzewa klasyfikacyjne
+
+#### Drzewa dla różnych zbiorów
+
+Najpierw rozważmy drzewo klasyfikacyjne dla wszystkich zmiennych:
+
+```{r, echo=FALSE, fig.cap="\\label{drzewo1}Drzewo klasyfikacyjne - wszystkie zmienne"}
+set.seed(1) 
+
+n <- nrow(dane)
+learning.set.index <- sample(1:n,2/3*n)
+learning.set <- dane[learning.set.index,]
+test.set     <- dane[-learning.set.index,]
+n.learning <- nrow(learning.set)
+n.test <- nrow(test.set)
+model <- cukrzyca ~ ciaze + glukoza + cisnienie + triceps + wiek + BMI + dziedziczenie + wiek
+
+# Budowa drzewa decyzyjnego z domyślnymi parametrami
+tree.simple <- rpart(model, data = learning.set)
+
+# Informacje o modelu
+##print(tree.simple)
+##summary(tree.simple)
+
+# Wizualizacja drzewa
+##plot(tree.simple)
+##text(tree.simple, cex = 0.7, use.n = TRUE)
+
+# Zaawansowana wizualizacja
+rpart.plot(tree.simple)
+
+# Prognozy etykiet klas
+pred.labels.learning <- predict(tree.simple, newdata = learning.set, type = "class")
+pred.labels.test <- predict(tree.simple, newdata = test.set, type = "class")
+
+# Prognozy prawdopodobieństw
+pred.probs.test <- predict(tree.simple, newdata = test.set, type = "prob")
+
+# Wyświetlenie wyników
+##head(pred.labels.learning)
+##head(pred.labels.test)
+##head(pred.probs.test)
+
+# macierz pomyłek (confusion matrix)
+conf.mat.learning <- table(pred.labels.learning, learning.set$cukrzyca)
+kable(conf.mat.learning, caption = "Macierz pomyłek (zbiór uczący)", align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                full_width = F)
+
+conf.mat.test <- table(pred.labels.test, test.set$cukrzyca)
+kable(conf.mat.test, caption = "Macierz pomyłek (zbiór testowy)", align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F)
+
+# błąd klasyfikacji (na zbiorze uczącym i testowy)
+error.rate.learning <- (n.learning - sum(diag(conf.mat.learning))) / n.learning
+error.rate.test <- (n.test - sum(diag(conf.mat.test))) / n.test
+cat("Błąd klasyfikacji - zbiór uczący:", round(error.rate.learning, 3), "\n")
+cat("Błąd klasyfikacji - zbiór testowy:", round(error.rate.test, 3), "\n")
+```
+
+Oraz drzewo dla wybranych 4 zmiennych o najlepszych zdolnościach dyskryminacyjnych: glukoza, wiek, BMI oraz dziedziczenie:
+
+```{r, echo=FALSE, fig.cap="\\label{drzewo2}Drzewo klasyfikacyjne - wybrane zmienne"}
+set.seed(1) 
+
+n <- nrow(dane)
+learning.set.index <- sample(1:n,2/3*n)
+learning.set <- dane[learning.set.index,]
+test.set     <- dane[-learning.set.index,]
+n.learning <- nrow(learning.set)
+n.test <- nrow(test.set)
+model <- cukrzyca ~ glukoza + wiek + BMI + dziedziczenie 
+
+# Budowa drzewa decyzyjnego z domyślnymi parametrami
+tree.simple <- rpart(model, data = learning.set)
+
+# Informacje o modelu
+##print(tree.simple)
+##summary(tree.simple)
+
+# Wizualizacja drzewa
+##plot(tree.simple)
+##text(tree.simple, cex = 0.7, use.n = TRUE)
+
+# Zaawansowana wizualizacja
+rpart.plot(tree.simple)
+
+# Prognozy etykiet klas
+pred.labels.learning <- predict(tree.simple, newdata = learning.set, type = "class")
+pred.labels.test <- predict(tree.simple, newdata = test.set, type = "class")
+
+# Prognozy prawdopodobieństw
+pred.probs.test <- predict(tree.simple, newdata = test.set, type = "prob")
+
+# Wyświetlenie wyników
+##head(pred.labels.learning)
+##head(pred.labels.test)
+##head(pred.probs.test)
+
+# macierz pomyłek (confusion matrix)
+conf.mat.learning <- table(pred.labels.learning, learning.set$cukrzyca)
+kable(conf.mat.learning, caption = "Macierz pomyłek (zbiór uczący)", align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                full_width = F)
+
+conf.mat.test <- table(pred.labels.test, test.set$cukrzyca)
+kable(conf.mat.test, caption = "Macierz pomyłek (zbiór testowy)", align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                full_width = F)
+
+# błąd klasyfikacji (na zbiorze uczącym i testowy)
+error.rate.learning <- (n.learning - sum(diag(conf.mat.learning))) / n.learning
+error.rate.test <- (n.test - sum(diag(conf.mat.test))) / n.test
+cat("Błąd klasyfikacji - zbiór uczący:", round(error.rate.learning, 3), "\n")
+cat("Błąd klasyfikacji - zbiór testowy:", round(error.rate.test, 3), "\n")
+```
+
+Na podstawie wyników dwóch pierwszych drzew klasyfikacyjnych można zauważyć, że oba modele osiągnęły podobną skuteczność.
+
+Pierwsze drzewo, zbudowane na podstawie wszystkich zmiennych miało niski błąd na zbiorze uczącym - 15%, ale wyższy na zbiorze testowym - 26%. Oznacza to, że dobrze dopasowało się do dostarczonych danych, ale trochę gorzej radziło sobie z nowymi danymi. W analizowanym przypadku wyniki dla zbioru składającego się z wybranych zmiennych są analogiczne do tych, dla całego zbioru.
+
+#### Drzewa klasyfikacyjne - zmiany parametrów
+
+Rozważmy najpierw drzewa klasyfikacyjne dla całego zbioru danych z parametrami tymi, co poprzednio:
+
+```{r, echo=FALSE, fig.cap="\\label{drzewo3}Drzewo klasyfikacyjne- cp=.01"}
+set.seed(1) 
+
+n <- nrow(dane)
+learning.set.index <- sample(1:n,2/3*n)
+learning.set <- dane[learning.set.index,]
+test.set     <- dane[-learning.set.index,]
+n.learning <- nrow(learning.set)
+n.test <- nrow(test.set)
+model <- cukrzyca ~ ciaze + glukoza + cisnienie + triceps + wiek + BMI + dziedziczenie + wiek
+
+# Budowa drzewa decyzyjnego z domyślnymi parametrami
+tree.simple <- rpart(model, data = learning.set, control=rpart.control(cp=.01, minsplit=5, maxdepth=20))
+
+# Informacje o modelu
+##print(tree.simple)
+##summary(tree.simple)
+
+# Wizualizacja drzewa
+##plot(tree.simple)
+##text(tree.simple, cex = 0.7, use.n = TRUE)
+
+# Zaawansowana wizualizacja
+rpart.plot(tree.simple)
+
+# Prognozy etykiet klas
+pred.labels.learning <- predict(tree.simple, newdata = learning.set, type = "class")
+pred.labels.test <- predict(tree.simple, newdata = test.set, type = "class")
+
+# Prognozy prawdopodobieństw
+pred.probs.test <- predict(tree.simple, newdata = test.set, type = "prob")
+
+# Wyświetlenie wyników
+##head(pred.labels.learning)
+##head(pred.labels.test)
+##head(pred.probs.test)
+
+# macierz pomyłek (confusion matrix)
+conf.mat.learning <- table(pred.labels.learning, learning.set$cukrzyca)
+kable(conf.mat.learning, caption = "Macierz pomyłek (zbiór uczący)", align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                full_width = F)
+
+conf.mat.test <- table(pred.labels.test, test.set$cukrzyca)
+kable(conf.mat.test, caption = "Macierz pomyłek (zbiór testowy)", align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                full_width = F)
+
+# błąd klasyfikacji (na zbiorze uczącym i testowy)
+error.rate.learning <- (n.learning - sum(diag(conf.mat.learning))) / n.learning
+error.rate.test <- (n.test - sum(diag(conf.mat.test))) / n.test
+cat("Błąd klasyfikacji - zbiór uczący:", round(error.rate.learning, 3), "\n")
+cat("Błąd klasyfikacji - zbiór testowy:", round(error.rate.test, 3), "\n")
+```
+
+Następnie spójrzmy na drzewa ze zmienionymi parametrami (m.in. cp, maxdepth oraz minsplit):
+
+```{r, echo=FALSE, fig.cap="Drzewo klasyfikacyjne - cp=.02"}
+set.seed(1) 
+
+n <- nrow(dane)
+learning.set.index <- sample(1:n,2/3*n)
+learning.set <- dane[learning.set.index,]
+test.set     <- dane[-learning.set.index,]
+n.learning <- nrow(learning.set)
+n.test <- nrow(test.set)
+model <- cukrzyca ~ ciaze + glukoza + cisnienie + triceps + wiek + BMI + dziedziczenie + wiek
+
+# Budowa drzewa decyzyjnego z domyślnymi parametrami
+tree.simple <- rpart(model, data = learning.set, control=rpart.control(cp=.02, minsplit=4, maxdepth=7))
+
+# Informacje o modelu
+##print(tree.simple)
+##summary(tree.simple)
+
+# Wizualizacja drzewa
+##plot(tree.simple)
+##text(tree.simple, cex = 0.7, use.n = TRUE)
+
+# Zaawansowana wizualizacja
+rpart.plot(tree.simple)
+
+# Prognozy etykiet klas
+pred.labels.learning <- predict(tree.simple, newdata = learning.set, type = "class")
+pred.labels.test <- predict(tree.simple, newdata = test.set, type = "class")
+
+# Prognozy prawdopodobieństw
+pred.probs.test <- predict(tree.simple, newdata = test.set, type = "prob")
+
+# Wyświetlenie wyników
+##head(pred.labels.learning)
+##head(pred.labels.test)
+##head(pred.probs.test)
+
+# macierz pomyłek (confusion matrix)
+conf.mat.learning <- table(pred.labels.learning, learning.set$cukrzyca)
+kable(conf.mat.learning, caption = "Macierz pomyłek (zbiór uczący)", align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                full_width = F)
+
+conf.mat.test <- table(pred.labels.test, test.set$cukrzyca)
+kable(conf.mat.test, caption = "Macierz pomyłek (zbiór testowy)", align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                full_width = F)
+
+# błąd klasyfikacji (na zbiorze uczącym i testowy)
+error.rate.learning <- (n.learning - sum(diag(conf.mat.learning))) / n.learning
+error.rate.test <- (n.test - sum(diag(conf.mat.test))) / n.test
+cat("Błąd klasyfikacji - zbiór uczący:", round(error.rate.learning, 3), "\n")
+cat("Błąd klasyfikacji - zbiór testowy:", round(error.rate.test, 3), "\n")
+```
+
+Na podstawie powyższych drzew klasyfikacyjnych można zauważyć, że oba modele osiągnęły podobną skuteczność. Po zmianie parametrów takich jak cp, minsplit oraz maxdepth widać, że przy dokładniejszym i bardziej rozbudowanym drzewie, znacznie maleje błąd klasyfikacji dla zbioru uczącego. W rozbudowanym drzewie wynoisł raptem 4,2%, podczas gdy dla mniej dokładnego aż 14,2%. 
+
+Jendak błąd dla zbioru testowego przy bardziej rozbudowanym drzewie wzrósł z 26% do 33,6%.
+
+#### Wnioski dla drzew klasyfikacyjnych:
+
+Na podstawie analizy dwóch pierwszych drzew (rysuki \ref{drzewo1}, \ref{drzewo2}) klasyfikacyjnych można stwierdzić, że oba modele osiągnęły podobną skuteczność – błąd klasyfikacji na zbiorze testowym w obu przypadkach wynosił 26%. Pierwsze drzewo oparto na wszystkich zmiennych i uzyskano niski błąd na zbiorze uczącym - 14,9%. Drugie drzewo zbudowano jedynie na czterech cechach o najlepszych zdolnościach dyskryminacyjnych. Nie poprawiło to jednak błądu uczącego, który wynosił także 14,9%. Pokazuje to, że uproszczenie modelu nie pogarsza jego jakości.
+
+Dodatkowo, zmiana parametrów drzewa (takich jak cp, minsplit i maxdepth) pozwoliła uzyskać lepsze dopasowanie do danych uczących – im bardziej rozbudowane drzewo, tym mniejszy błąd dla danych uczących. Jednak wpływ na dane testowe był znacząco gorszy – błąd zmienił się z 26% na 33,6%.
+
+## Porównanie metod
+
+### Metoda kNN
+
+```{r metoda_knn, echo=FALSE}
+
+data(PimaIndiansDiabetes2)
+dane <- na.omit(PimaIndiansDiabetes2)
+
+# Zmiana nazw kolumn na polskie
+colnames(dane) <- c(
+  "ciaze",
+  "glukoza",
+  "cisnienie",
+  "triceps",
+  "insulina",
+  "BMI",
+  "dziedziczenie",
+  "wiek",
+  "cukrzyca"
+)
+
+numeric.features <- sapply(dane, is.numeric)
+data.pca <- dane[, numeric.features]
+dane_stand <- scale(data.pca)
+
+dane_stand_df <- as.data.frame(dane_stand)
+dane_stand_df$cukrzyca <- dane$cukrzyca
+
+my.predict  <- function(model, newdata) predict(model, newdata=newdata, type="class")
+my.ipredknn <- function(formula1, data1, ile.sasiadow) ipredknn(formula=formula1,data=data1,k=ile.sasiadow)
+```
+
+```{r metoda_knn_cv, echo=FALSE}
+set.seed(123)
+liczba.sasiadow.zakres <- 1:7
+wyniki1 <-  sapply(liczba.sasiadow.zakres, function(k)
+                   errorest(cukrzyca ~., dane_stand_df, model=my.ipredknn, predict=my.predict, estimator="cv", 
+                            est.para=control.errorest(k = 10), ile.sasiadow=k)$error)
+plot(liczba.sasiadow.zakres, wyniki1, type="b", col="green", lwd=3, 
+     main="Wpływ liczby sąsiadów na błąd klasyfikacji", xlab="k (liczba sąsiadów)", 
+     ylab="błąd klasyfikacji (10-fold Cross-Validation)")
+grid()
+```
+
+```{r metoda_knn_b, echo=FALSE}
+set.seed(123)
+liczba.sasiadow.zakres <- 1:7
+wyniki1 <-  sapply(liczba.sasiadow.zakres, function(k)
+                   errorest(cukrzyca ~., dane_stand_df, model=my.ipredknn, predict=my.predict, estimator="boot", 
+                            est.para=control.errorest(nboot = 50), ile.sasiadow=k)$error)
+plot(liczba.sasiadow.zakres, wyniki1, type="b", col="blue", lwd=3, 
+     main="Wpływ liczby sąsiadów na błąd klasyfikacji", xlab="k (liczba sąsiadów)", 
+     ylab="błąd klasyfikacji (metoda bootstrap)")
+grid()
+
+```
+
+Zaawansowane metody sprawdzania, takie jak 10-krotna walidacja krzyżowa i metoda bootstrap, dały podobne wyniki jak podział danych na część uczącą i testową. W walidacji krzyżowej, najlepsze wyniki dla algorytmu k-NN osiągnięto przy liczbie sąsiadów równej 5. W przypadku metody bootstrap różnica w błędzie między k = 5 a k = 7 była bardzo mała, więc oba te ustawienia dawały podobne rezultaty.
+
+### Metoda - Naiwny Klasyfikator Bayesowski
+```{r metoda nb, echo=FALSE}
+
+my.predict.nb <- function(model, newdata) predict(model, newdata=newdata)
+my.nb <- function(formula1, data1) naiveBayes(formula1, data=data1)
+
+set.seed(123)
+error_cv_nb <- errorest(cukrzyca ~ ., data = dane, 
+                        model = my.nb, predict = my.predict.nb, 
+                        estimator = "cv", est.para = control.errorest(k = 10))$error
+
+error_boot_nb <- errorest(cukrzyca ~ ., data = dane, 
+                          model = my.nb, predict = my.predict.nb, 
+                          estimator = "boot", est.para = control.errorest(nboot = 50))$error
+
+cat("Błąd klasyfikacji Naive Bayes (10-fold CV):", round(error_cv_nb, 3), "\n")
+cat("Błąd klasyfikacji Naive Bayes (Bootstrap):", round(error_boot_nb, 3), "\n")
+
+
+```
+W przypadku Naiwnego Klasyfikatora Bayesowskiego najlepszy wynik również uzyskano przy zastosowaniu najprostszego podejścia – błąd klasyfikacji wynosił wtedy 21,4%. Przy wykorzystaniu bardziej zaawansowanych metod oceny dokładności, takich jak 10-fold Cross-Validation i bootstrap, błędy były nieco wyższe i wynosiły odpowiednio 22,7% oraz 23,5%. Pokazuje to, że choć metody zaawansowane dają bardziej wiarygodną ocenę, w tym przypadku najprostszy schemat podziału danych przyniósł najlepszy rezultat.
+
+
+###  Metoda - drzewa klasyfikacyjne
+
+```{r, echo=FALSE}
+
+my.predict.tree <- function(model, newdata) predict(model, newdata=newdata, type="class")
+my.tree <- function(formula1, data1) rpart(formula1, data=data1, method="class")
+set.seed(123)
+
+error_cv_tree <- errorest(cukrzyca ~ ., data = dane,
+                          model = my.tree, predict = my.predict.tree,
+                          estimator = "cv", est.para = control.errorest(k = 10))$error
+
+error_boot_tree <- errorest(cukrzyca ~ ., data = dane,
+                            model = my.tree, predict = my.predict.tree,
+                            estimator = "boot", est.para = control.errorest(nboot = 50))$error
+
+
+cat("Błąd klasyfikacji - Drzewo decyzyjne (10-fold CV):", round(error_cv_tree, 3), "\n")
+cat("Błąd klasyfikacji - Drzewo decyzyjne (Bootstrap):", round(error_boot_tree, 3), "\n")
+
+
+```
+Obie zaawansowane metody dały błędy klasyfikacyjne na podobnym poziomie – i były one niższe niż przy prostszym podejściu. Przy jednokrotnym podziale zbioru, nawet przy dobrze dobranych parametrach, błąd wynosił 26%. Dzięki zastosowaniu bardziej zaawansowanych metod oceny, błąd klasyfikacji spadł: w przypadku 10-fold Cross-Validation do 24,5%, a przy metodzie bootstrap do 25,5%. Pokazuje to, że bardziej wiarygodne metody oceny pozwalają na uzyskanie dokładniejszych szacunków skuteczności modelu.
+
+## Wnioski końcowe
+
+* Dla metody k-NN:
+
+Korzystając z zaawansowanych metod oceny dokładności, zauważono, że wraz ze wzrostem liczby sąsiadów (k) błąd klasyfikacji się zmniejsza. Przy podziale danych tylko raz na zbiór uczący i testowy, najlepsze wyniki uzyskano, gdy użyto dwóch zmiennych o najwyższej zdolności rozróżniania klas. Natomiast w przypadku zaawansowanych metod, takich jak walidacja krzyżowa, minimalny błąd klasyfikacji był niższy niż przy jednokrotnym podziale danych. Mimo to, zależność między liczbą sąsiadów a błędem klasyfikacji pozostała podobna
+
+* Dla Naiwnego Klasyfikatora Bayesowskiego:
+
+Przy jednorazowym podziale danych na zbiór uczący i testowy, błąd klasyfikacji wyniósł 21,4%. Dla bardziej zaawansowanych metod wynik był nieco gorszy – w metodzie 10-fold Cross-Validation błąd wyniósł 22,7%, a przy użyciu metody bootstrap 23,5%. Oznacza to, że w tym przypadku najlepszy rezultat uzyskano przy najprostszym podejściu. Natomiast analizując różne zestawy cech, najlepsze wyniki osiągnięto, gdy do klasyfikacji użyto czterech zmiennych: glukozy, wieku, BMI oraz dziedziczenie.
+
+* Dla drzew klasyfikacyjnych:
+
+W przypadku drzew klasyfikacyjnych, najprostsze podejście – czyli jednorazowy podział na zbiór uczący i testowy – dało najsłabsze wyniki. Nawet po zmianie parametrów, najniższy błąd klasyfikacji wyniósł 26%. Zastosowanie zaawansowanych metod przyniosło lepsze rezultaty: przy 10-fold Cross-Validation błąd spadł do 24,5%, a przy metodzie bootstrap wyniósł 25,5%
+
+Spośród analizowanych metod, najlepsze wyniki dał algorytm k-NN – szczególnie przy liczbie sąsiadów k = 5. Najniższy błąd klasyfikacji (21,4%) uzyskano przy prostym podziale danych. Nieco gorsze, ale porównywalne wyniki dawały metody 10-fold CV i bootstrap. Na drugim miejscu pod względem skuteczności był klasyfikator Naive Bayes, z błędem rzędu 22–23%. Najsłabiej wypadły drzewa decyzyjne – ich błąd klasyfikacji był najwyższy, nawet po optymalizacji parametrów, i wynosił od 24,5% do 26%.
+
+W porównaniu trzech metod klasyfikacyjnych najlepsze wyniki uzyskano dla Naiwnego Klasyfikatora Bayesowskiego – błąd klasyfikacji na zbiorze testowym wynosił 21,4%, a przy metodach zaawansowanych (10-fold CV i bootstrap) odpowiednio 22,7% i 23,5%. Najlepsze rezultaty osiągnięto, gdy użyto czterech zmiennych: glukozy, wieku, BMI i dziedziczenia.
+
+Metoda k-NN dała dobre wyniki przy liczbie sąsiadów równej 5 – błąd testowy wynosił wtedy 26,7%. Zarówno CV, jak i bootstrap potwierdziły, że k = 5 to optymalna wartość.
+
+Drzewa decyzyjne wypadły najsłabiej – błąd na zbiorze testowym wynosił co najmniej 26%, a przy bardziej rozbudowanym modelu nawet 33,6%.
+
+W przypadku analizowanych danych metoda Naiwnego Bayesa daje najlepsze wyniki, jednak różnice w otrzymywanych błędach są niewielkie. Natomiast drzewa klasyfikacyjne oraz metoda k-Najbliższych Sąsiadów dają bardzo zbliżone, niemal identyczne błędy klasyfikacyjne dla zbiorów testowych przy jednokrotnym podziale danych.
+
+Wybór schematu oceny dokładności miał wpływ na uzyskane wyniki, jednak nie zmienił ogólnych wniosków dotyczących skuteczności porównywanych metod klasyfikacyjnych. Niezależnie od zastosowanego podejścia – czy był to jednokrotny podział danych, 10-fold Cross-Validation czy metoda bootstrap – najlepsze wyniki uzyskano dla Naiwnego Klasyfikatora Bayesowskiego. Metoda k-Najbliższych Sąsiadów dawała nieco gorsze rezultaty, a najniżej oceniono drzewa klasyfikacyjne. Choć błędy klasyfikacji różniły się nieznacznie w zależności od wybranej metody oceny (np. były nieco wyższe w przypadku cross-validation i bootstrapu niż przy prostym podziale), kolejność skuteczności metod pozostała taka sama. Oznacza to, że wybór schematu oceny miał wpływ na dokładne wartości błędów, ale nie wpłynął istotnie na końcowe wnioski dotyczące porównania metod.
+
+
+

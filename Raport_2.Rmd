@@ -1,0 +1,882 @@
+---
+title: "Raport 2"
+author: "Olga Foriasz 277529, Szymon Smoła 282252"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    fig_caption: true
+    fig_width: 5
+    fig_height: 4
+    number_sections: true
+  html_document:
+    toc: true
+    df_print: paged
+geometry: "a4paper, margin=2cm"
+header-includes:
+- \usepackage[OT4]{polski}
+- \usepackage[utf8]{inputenc}
+- \usepackage{graphicx}
+- \usepackage{float}
+subtitle: Eksploracja danych
+fontsize: 12pt
+---
+
+```{r setup_wczytanie_danych, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+library(kableExtra)
+library(knitr)
+library(ggplot2)
+library(factoextra)
+library(corrplot)
+library(titanic)
+library(cluster)
+library(MASS)
+library(reshape2)
+library(ggrepel)
+library(dplyr)
+library(RColorBrewer)
+library(tidyr)
+library(arules)
+library(e1071)
+library(gridExtra)
+library(purrr)
+```
+
+# Dyskretyzacja (przedziałowanie) cech ciągłych
+
+## Krótki opis zagadnienia
+
+### Irysy
+
+W pierwszej części raportu przeprowadzimy analizę danych dotyczących irysów, skupiając się na dyskretyzacji cech ciągłych. Dane zawierają wymiary kwiatów trzech gatunków. Główne pytania badawcze to:
+
+1. **Jaka cecha wyróżnia się najlepszą i najgorszą zdolnością dyskryminacji**
+
+2. **Który algorytm dyskretyzacji jest najbardziej skuteczny**
+
+```{r wczytanie_danych, echo=FALSE}
+data("iris")
+colnames(iris) <- c("Długość.działki.kielicha", "Szerokość.działki.kielicha", "Długość.płatka", "Szerokość.płatka", "Gatunek")
+```
+
+## Opis eksperymentów/analiz
+
+### Wykorzystane narzędzia
+
+* *Metody statystyczne:*
+  - Wizualizacja rozkładów
+  - Statystyki opisowe
+* *Metody dyskretyzacji nienadzorowanej:*
+  - Equal frequency
+  - Equal width
+  - k-means clustering
+  - Przedziały zdefinowane przez użytkownika
+* *Parametry:*
+  - Liczba przedziałów: K = 3
+
+## Wyniki
+
+### Wybór cechy
+
+```{r wykresy_irysy, echo=FALSE, fig.cap = "\\label{boxplot}Wykresy pudełkowe dla cech charakteryzujących" }
+library(gridExtra)
+
+p1 <- ggplot(iris, aes(x = Gatunek, fill=Gatunek, y=Długość.działki.kielicha)) + geom_boxplot() + theme(legend.position = "none",axis.text = element_text(size = 10), axis.title.y = element_text(size = 9))
+
+p2 <- ggplot(iris, aes(x = Gatunek, fill=Gatunek, y=Szerokość.działki.kielicha)) + geom_boxplot() + theme(legend.position = "none",axis.text = element_text(size = 10), axis.title.y = element_text(size = 9))
+
+p3 <- ggplot(iris, aes(x = Gatunek, fill=Gatunek, y=Długość.płatka)) + geom_boxplot() + theme(legend.position = "none", axis.text = element_text(size = 10), axis.title.y = element_text(size = 9))
+
+p4 <- ggplot(iris, aes(x = Gatunek, fill=Gatunek, y=Szerokość.płatka)) + geom_boxplot() + theme(legend.position = "none", axis.text = element_text(size = 10), axis.title.y = element_text(size = 9))
+
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+```
+
+Na podstawie Rysunku \ref{boxplot} wynika, że długość płatka najlepiej separuje gatunki, zaś szerokość działki kielicha wykazuje najsłabszą zdolność dyskryminacji.
+Jesteśmy w stanie to wywnioskować ze względu na niewielkie nałożenie się wartości wykresów przy wykresie długości płatków oraz widoczne nałożenie się wartości wykresów pudełkowych w przypadku szerokości działek kielicha.
+
+### Porównanie nienadzorowanych metod dyskretyzacji
+
+```{r przypisanie_danych, echo=FALSE}
+x <- iris[,"Długość.płatka"]
+y <- iris[,"Szerokość.działki.kielicha"]
+cols <- c("#FFB7CE","#B5C7E5","#E6CEFF")
+
+```
+
+```{r funkcja_tabele, echo=FALSE}
+stworz_tabele <- function(dane, zmienna, metoda, tytul, breaks = 3, 
+                         custom_breaks = NULL, custom_labels = NULL) {
+  
+  # Wybór metody dyskretyzacji
+  dyskretyzacja <- switch(metoda,
+    "equal.freq" = discretize(dane[[zmienna]], breaks = breaks),
+    "equal.width" = discretize(dane[[zmienna]], method = "interval", breaks = breaks),
+    "kmeans" = discretize(dane[[zmienna]], method = "cluster", breaks = breaks),
+    "custom" = discretize(dane[[zmienna]], method = "fixed", 
+                         breaks = custom_breaks, labels = custom_labels)
+  )
+  
+  tabela <- table(dyskretyzacja, dane$Gatunek)
+  procenty <- round(prop.table(tabela, 1) * 100, 1)
+  
+  data.frame(
+    Przedział = rownames(tabela),
+    setosa = paste0(tabela[,1], " (", procenty[,1], "%)"),
+    versicolor = paste0(tabela[,2], " (", procenty[,2], "%)"),
+    virginica = paste0(tabela[,3], " (", procenty[,3], "%)")
+  ) %>%
+    kable(align = 'c', caption = tytul) %>%
+    kable_styling(bootstrap_options = c("striped", "hover")) %>%
+    column_spec(1, bold = TRUE, color = "white", background = "#4E84C4") %>%
+    row_spec(0, bold = TRUE, color = "white", background = "#5B9BD5")
+}
+```
+
+```{r equal_freq, echo=FALSE, fig.cap = "\\label{eqf}Dyskretyzacja oparta na jednakowej częstości - wykres mozaikowy"}
+
+par(mfrow = c(1, 2), cex.lab = 0.7, cex.axis = 0.5, cex.main = 1)
+
+x.disc.equal.freq <- discretize(x, breaks = 3)
+x.tab.equal.freq <- table(x.disc.equal.freq, iris$Gatunek)
+
+plot(iris$Gatunek~x.disc.equal.freq, col=cols, ylab = "Gatunek", xlab = "Przedziały zmiennej - Długość płatka")
+
+y.disc.equal.freq <- discretize(y, breaks = 3)
+y.tab.equal.freq <- table(y.disc.equal.freq, iris$Gatunek)
+
+plot(iris$Gatunek~y.disc.equal.freq, col=cols, ylab = "Gatunek", xlab = "Przedziały zmiennej - Szerokość kielicha")
+
+```
+
+```{r tabela_equal_freq, echo=FALSE}
+
+stworz_tabele(iris, "Długość.płatka", "equal.freq", "Długość płatka - równa częstość")
+stworz_tabele(iris, "Szerokość.działki.kielicha", "equal.freq", "Szerokość działki - równa częstość")
+
+```
+
+```{r procent_equal_freq}
+
+matchClasses(x.tab.equal.freq)
+matchClasses(y.tab.equal.freq)
+
+```
+Z powyższych tabel 1 i 2 oraz z rysunku \ref{eqf} wynika, że dla długości płatka pierwszy przedział wyznaczony metodą **równych częstości** zawiera wyłącznie rekordy odpowiedzialne za gatunek setosa, zaś w pozostałych przedziałach widać lekkie wymieszanie gatunków. Obliczony procent zdolności grupowania metodą **równych częstości** dla cechy odpowiedzialnej, za długość płatka wynosi 95.33%. Jednak niestety dla szerokości działki kielicha, metoda ta nie działa perfekcyjnie i uzyskała 55.33% zdolności grupowania.
+
+
+```{r equal_width, echo=FALSE, fig.cap = "\\label{eqw}Dyskretyzacja oparta na jednakowej szerokości przedziałów - wykres mozaikowy"}
+
+par(mfrow = c(1, 2), cex.lab = 0.7, cex.axis = 0.45, cex.main = 1)
+
+x.disc.equal.width <- discretize(x, method = "interval", breaks = 3)
+x.tab.equal.width <- table(x.disc.equal.width, iris$Gatunek)
+
+plot(iris$Gatunek~x.disc.equal.width, col=cols, ylab = "Gatunek", xlab = "Przedziały zmiennej - Długość płatka")
+
+y.disc.equal.width <- discretize(y, method = "interval", breaks = 3)
+y.tab.equal.width <- table(y.disc.equal.width, iris$Gatunek)
+
+plot(iris$Gatunek~y.disc.equal.width, col=cols, ylab = "Gatunek", xlab = "Przedziały zmiennej - Szerokość kielicha")
+
+```
+
+```{r tabela_equal_width, echo=FALSE}
+
+stworz_tabele(iris, "Długość.płatka", "equal.width", "Długość płatka - równe przedziały")
+stworz_tabele(iris, "Szerokość.działki.kielicha", "equal.width", "Szerokość działki - równe przedziały")
+
+```
+
+```{r procent_equal_width}
+
+matchClasses(x.tab.equal.width)
+matchClasses(y.tab.equal.width)
+
+```
+Analizując wyniki z tabel 3 i 4 oraz z rysunku \ref{eqw} w analogiczny sposób jak w poprzedniej metodzie. Zauważamy, że metoda **równych szerokości** już nie tak dokładnie grupuje przedziałami nasze dane. Zdolność dyskryminacyjna dla zmiennej odpowiedzialnej za długość płatka wynosi 94.67%, a dla tej odpowiadającej szerokości kielicha wynosi 50.67%. W obu przypadkach jest to gorszy wynik, niż przy metodzie **równych częstości**.
+
+```{r k-means_clustering, echo=FALSE, fig.cap = "\\label{kcl}Dyskretyzacja oparta na algorytmie k-means - wykres mozaikowy"}
+
+set.seed(220)  # pod stałe wyniki w raporcie
+
+par(mfrow = c(1, 2), cex.lab = 0.7, cex.axis = 0.45, cex.main = 1)
+
+x.disc.k.means <- discretize(x, method = "cluster", breaks = 3)
+x.tab.disc.k.means <- table(x.disc.k.means, iris$Gatunek)
+
+plot(iris$Gatunek~x.disc.k.means, col=cols, ylab = "Gatunek", xlab = "Przedziały zmiennej - Długość płatka")
+
+y.disc.k.means <- discretize(y, method = "cluster", breaks = 3)
+y.tab.disc.k.means <- table(y.disc.k.means, iris$Gatunek)
+
+plot(iris$Gatunek~y.disc.k.means, col=cols, ylab = "Gatunek", xlab = "Przedziały zmiennej - Szerokość kielicha")
+
+```
+
+```{r tabela_k-means_clustering, echo=FALSE}
+
+set.seed(220)  # pod stałe wyniki w raporcie
+
+stworz_tabele(iris, "Długość.płatka", "kmeans", "Długość płatka - k-means")
+stworz_tabele(iris, "Szerokość.działki.kielicha", "kmeans", "Szerokość działki - k-means")
+
+```
+
+```{r procent_k-means_clustering}
+
+set.seed(220)  # pod stałe wyniki w raporcie
+
+matchClasses(x.tab.disc.k.means)
+matchClasses(y.tab.disc.k.means)
+
+```
+
+Przyglądając się tabelom 5 i 6 oraz rysunkowi \ref{kcl} zauważamy, że metoda **k-means clustering** daje podobne rezultaty co metoda **równych częstości**. W wypadku długości płatka rysunek \ref{kcl} wygląda identycznie jak rysunek \ref{eqf}. Inną sytuację obserwujemy w przypadku wykresu cechy odpowiedzialnej za szerokość działki kielicha.
+W tym wypadku metoda **k-means clustering** wykazuje się lepszą zdolnością grupującą niż powyżej sprawdzane metody. Jej współczynnik wynosi 56% (dla stałego seeda równego 220)
+
+```{r przedzialy_uzytkownika, echo=FALSE, fig.cap = "\\label{wlasne}Dyskretyzacja oparta na przedziałach zadanych przez użytkownika - wykres mozaikowy"}
+
+par(mfrow = c(1, 2), cex.lab = 0.7, cex.axis = 0.5, cex.main = 1)
+
+x.disc.user <- discretize(x, method = "fixed", 
+    breaks = c(1, 3, 4.9, 6.9))
+x.tab.user <- table(x.disc.user, iris$Gatunek)
+
+plot(iris$Gatunek~x.disc.user, col=cols, ylab = "Gatunek", xlab = "Przedziały zmiennej - Długość płatka")
+
+y.disc.user <- discretize(y, method = "fixed", 
+    breaks = c(2, 2.69, 3.4, 4.4))
+y.tab.user <- table(y.disc.user, iris$Gatunek)
+
+plot(iris$Gatunek~y.disc.user, col=cols, ylab = "Gatunek", xlab = "Przedziały zmiennej - Szerokość kielicha")
+
+```
+
+```{r tabela_przedzialy_uzytkownika, echo=FALSE}
+
+stworz_tabele(iris, "Długość.płatka", "custom", 
+             "Długość płatka - własne przedziały",
+             custom_breaks = c(1, 3, 4.9, 6.9))
+
+stworz_tabele(iris, "Szerokość.działki.kielicha", "custom", 
+             "Szerokość działki - własne przedziały",
+             custom_breaks = c(2, 2.69, 3.4, 4.4))
+
+```
+
+```{r procent_przedzialy_uzytkownik}
+
+matchClasses(x.tab.user)
+matchClasses(y.tab.user)
+
+```
+
+ykorzystując możliwość ustawienia własnych przedziałów w tabelach 7 i 8 oraz na rysunku \ref{wlasne} udało nam się uzyskać możliwie jak najlepsze zdolności grupowania cech długości płatka i szerokości działki kielicha. Współczynniki zdolności dyskryminacyjnych podanych cech odpowiednio wyniosły 95.33% dla długości płatka oraz 56.67% dla szerokości działki kielicha. 
+
+## Podsumowanie
+
+Najlepszą zdolność dyskryminacyjną w przypadku zmiennej **Długość.Płatka** wykazały się metody **równych częstości** i **k-means clustering**, które osiągnęły identyczne wyniki (95.33%). 
+W wypadku zmiennej **Szerokość.Działki.Kielicha** najlepsza okazała się być metoda **k-means clustering** osiągając zdolność na poziomie 56%. 
+Można jednak uzyskać jeszcze lepszy wynik (na poziomie 56.67%) ręcznie ustalając przedziały grupowania. 
+
+# Analiza składowych głównych - metoda PCA
+
+## Krótki opis zagadnienia
+
+Analizowany zbiór danych zawiera wskaźniki jakości życia dla wybranych miast na całym świecie. Dane pochodzą z ze strony Kaggle (źródło: https://www.kaggle.com/datasets/orhankaramancode/city-quality-of-life-dataset) i obejmują różne kategorie, takie jak: bezpieczeństwo, opieka zdrowotna, jakość powietrza, koszty życia, infrastruktura, poziom szczęścia czy dostęp do usług cyfrowych. Celem analizy tego zbioru może być porównanie miast pod względem warunków życia, identyfikacja podobieństw między miastami z różnych kontynentów oraz wizualizacja przestrzenna różnic za pomocą technik takich jak analiza głównych składowych (PCA).
+
+## Przygotowanie danych
+
+Analizę zaczniemy od przygotowania danych i sprawdzenia czy wymagana jest standaryzacja.
+
+
+```{r etap1, echo =FALSE, fig.cap="\\label{boxy1}Wykresy pudełkowe", fig.width=7, fig.height=5}
+dane <- read.csv(file="uaScoresDataFrame.csv", stringsAsFactors = TRUE)
+colnames(dane) <- c("X", "Miasto", "Kraj", "Kontynent", "Koszt_Mieszkania", "Koszt_Życia", "Startupy", "Kapitał_Podwyższonego_Ryzyka", "Łączność_Podróżna", "Dojazd", "Wolność_Biznesu", "Bezpieczeństwo", "Opieka_Zdrowotna", "Edukacja", "Jakość_Środowiska", "Gospodarka", "Opodatkowanie", "Dostęp_Do_Internetu", "Kultura_i_Rozrywka", "Tolerancja", "Aktywność_Na_Świeżym_Powietrzu")
+
+##str(dane)
+dane<-dane[,-1]
+library(knitr)
+##for (i in 1:20){
+##  if(is.numeric(dane[,i])){
+##    print(colnames(dane)[i])
+##  }}
+
+
+## wybranie danych ilościowych
+dane_numeryczne <- subset(dane, select = sapply(dane, is.numeric))
+
+## wykonanie wszystkich wykresów, aby wybrać najciekawsze
+##for (i in 1:ncol(dane_numeryczne)){
+##  boxplot(dane_numeryczne[i], col="orchid2", ylab="wartość", main=paste("Wykres ##zmiennej",colnames(dane)[i]), ylim = c(0,10) )
+##}
+
+par(mfrow=c(1,1), cex.axis=0.5)
+
+##for (i in c(4,6,9,11)){
+##  boxplot(dane_numeryczne[i], col=rainbow(1), ylab="wartość", main=paste("Wykres ##zmiennej",colnames(dane)[i] ),cex.main = 0.8)
+##}
+
+numeric.features <- sapply(dane, is.numeric)
+data.pca <- dane[, numeric.features]
+
+mar.old <- c(5, 4, 4, 2) + 0.1 #marginesy na wykresie
+par(las=3, mar=c(8,4,4,2)+0.1)
+boxplot(data.pca, col=rainbow(18))
+par(las=1, mar=mar.old)
+```
+Na Rysunku \ref{boxy1} ukazany jest wykres pudełkowych danych przed standaryzacją. Jak da się zauważyć, niektóre dane mają większą zmienność od innych. Z tego powodu warto zastosować standaryzację, żeby jedne dane nie dominowały nad pozostałymi. 
+
+```{r, echo=FALSE, fig.cap="\\label{boxy2}Wykresy pudełkowe", fig.width=7, fig.height=5}
+par(mfrow=c(1,1), cex.axis=0.5)
+mar.old <- c(5, 4, 4, 2) + 0.1 #marginesy na wykresie
+par(las=3, mar=c(8,4,4,2)+0.1)
+boxplot(scale(data.pca), col=rainbow(18))
+par(las=1, mar=mar.old)
+```
+
+Na Rysunku \ref{boxy2} przedstawiony jest wykres zmiennych po standaryzacji. 
+
+
+## Wyznaczanie składowych głównych
+
+```{r, echo=FALSE}
+prcomp(data.pca, retx=T, center=T, scale.=T) -> data.after.pca ## wyznaczenie składowych głównych
+##print(data.after.pca$rotation[,1:3]) ## wektor ładunków dla 3 pierwszych składowych
+loadings <- round(data.after.pca$rotation[,1:3], 3)
+kable(loadings, caption = "Wektory ładunków (PC1, PC2 i PC3)")
+```
+
+Tabela 9 przedstawia wektory ładunków kolejno dla PC1, PC2 oraz PC3
+Z powyższych danych możemy zauważyć następujące wnioski dotyczące kilku pierwszch wektorów ładunków:
+
+* 1-szy wektor ładunku przypisuje największą wagę zmiennej Edukacja, a na drugim miejscu zmiennej Wolność_Biznesu. PC1 możemy powiązać z gospodarką danego kraju oraz jej rozwojem.
+
+* 2-gi wektor ładunku największy wkład przypisuje zmiennej Startupy, następnie zmiennej Kapitał_Podwyższonego_Ryzyka. Możemy interpretować PC2 jako kontrast nowoczesnego społeczeństwa z takim, w którym większą wagę przykłada się do wartości takich jak np. bezpieczeństwo.
+
+* 3-ci wektor ładunku największą wagę przypisuje zmiennym Dojazd oraz Łączność_Podróżna. Na trzecim miejscu znajduje się zmienna Koszt_Życia. Zatem PC3 wiąże dostępność transportu oraz możliwość dojazdu ze stanem materialnym i kosztami życia. Można to interpretować jako podział względem poziomu życia i codziennej wygody.
+
+## Zmienność odpowiadająca poszczególnym składowym
+
+```{r, echo=FALSE, fig.width=7, fig.height=5, fig.cap="\\label{var1}Wykres wariancji"}
+##summary(data.after.pca)
+variance <- (data.after.pca$sdev^2)/sum(data.after.pca$sdev^2)*100 # wartość w %
+
+cumulative.variance <- cumsum(variance)
+
+barplot(variance, names.arg=paste0("PC",1:length(variance)), col="lightblue",
+        main="Wariancja odpowiadająca poszczególnym składowym (w %)", cex.names = .75, las=3)
+```
+
+Na Rysunku \ref{var1} przedstawia wariancję dla poszczegołnych zmiennych składowych, przedstawioną w procentach. Rysunek ten jest wizualną odpowiedzią na pytanie: jaki procent zmienności odpowiada poszczególnym składowym głównym.
+
+```{r, echo=FALSE,  fig.width=7, fig.height=5,fig.cap="\\label{var2}Wariancja skumulowana"}
+barplot(cumulative.variance, names.arg=paste0("PC",1:length(variance)), col="lightblue",
+        main="Skumulowana wariancja (w %) ", cex.names = .75, las=3)
+
+abline(h=80, col="green", lwd=2, lty=2)
+abline(h=90, col="red", lwd=2, lty=2)
+grid(ny = 10)
+legend("bottomright", legend=c("80%",'90%'), col=c("green","red"), lwd=2, lty=2, bg="white")
+```
+
+Wykorzystując Rysunek \ref{var2} można zauważyć, że do wyjaśnienia 80% całkowitej zmienności porzebujemy 7 pierwszych składowych (tj.PC1-PC7). Natomiast analogicznie korzystając z wykresu, do wyjaśnienia 90% potrzebne jest 10 pierwszych składowych (tj.PC1-PC10).
+
+## Wizualizacja danych wielowymiarowych
+
+```{r, echo=FALSE, fig.width=10, fig.height=7, fig.cap="\\label{rozrzut}Wykres rozrzutu 2D"}
+kolory <- rainbow(6)
+
+plot(data.after.pca$x[,1], data.after.pca$x[,2], col=kolory[as.numeric(dane$Kontynent)], 
+     pch=16, xlab="PC1", ylab="PC2", cex=1.2)
+title("Dane - wykres rozrzutu 2D")
+legend("topleft",cex=1,legend=c("Afryka", "Azja", "Europa", "Ameryka Płn.", "Oceania", "Ameryka Płd."), col=kolory, pch=16, bg = rgb(1, 1, 1, 0.5))
+ind_max_pc1 <- which.max(data.after.pca$x[,1])
+ind_min_pc2 <- which.min(data.after.pca$x[,2])
+
+points(data.after.pca$x[which.max(data.after.pca$x[,1]), 1],
+       data.after.pca$x[which.max(data.after.pca$x[,1]), 2],
+       pch = 0, col = "red", cex = 3,labels = rownames(dane)[ind_max_pc1])
+points(data.after.pca$x[which.min(data.after.pca$x[,2]), 1],
+       data.after.pca$x[which.min(data.after.pca$x[,2]), 2],
+       pch = 0, col = "red", cex = 3)
+
+##text(data.after.pca$x[ind_max_pc1, 1],
+##     data.after.pca$x[ind_max_pc1, 2],
+##     labels = rownames(dane)[ind_max_pc1],
+##     pos = 3, col = "red", cex = 0.9)
+
+## Maks PC1 - Singpur
+## Min PC2 - Delhi
+```
+Na podstawie Rysunku \ref{rozrzut} można zaobserwować, że dla niektórych kontynentów dane skumulowane są na wykresie w pewnych mniejszych obszarach. Świadczy to o małym zróżnicowaniu wartości wektorów składowych głównych, podczas gdy dla pozostałych dane są bardziej rozproszone. Może to świadczyć o skrajnych różnicach na terenie poszczególnych kontynentów. Pomimo tego, można jednak w większości przypadków znaleźć dla każdego kontynentu obszar, w którym znajdują się wartości wektorów składowych.
+
+Na wykresie można dostrzec naturalne grupowanie miast. Dla przykładu, miasta w Europie, Oceanii oraz Ameryce Północnej mają podobne wartości, co może świadczyć o porównywalnym poziomie rozwoju. Analogicznie, kontynenty Ameryka Południowa, Afryka i Azja są na podobnym poziomie według wektorów składowych głównych, jednak znacznie odstają od wcześniej wspomnianych trzech kontynentów.
+
+Największą wartość PC1 przypisuje się miastu-państwu Singapur, natomiast najniższą wartość PC2 – Delhi, stolicy Indii. Singapur jest dobrze rozwiniętym miastem z silną gospodarką. Jest także jednym z najbogatszych państw, gdzie komfort życia jest na wysokim poziomie. W Delhi, mimo postępującego rozwoju, mniejszy nacisk kładziony jest na nowoczesne rozwiązania czy innowacyjne pomysły. Stąd niższy wskaźnik dotyczący startupów czy kapitału podwyższonego ryzyka.
+
+## Korelacja zmiennych
+```{r, echo=FALSE,fig.width=7, fig.height=5, fig.cap="\\label{2wykres}Dwuwykres"}
+fviz_pca_biplot(data.after.pca, label="var")
+```
+
+Na dwuwykresie przedstawionym na Rysunku \ref{2wykres} można odczytać, które zmienne są skorelowane dodatnio, które ujemnie, a które nie są wcale skorelowane. Do jednych z najbardziej dodatnio skorelowanych zmiennych należą np. Startupy, Kultura_i_Rozrywka oraz Kapitał_Podwyższonego_Ryzyka, a także Gospodarka i Edukacja. Można to interpretować jako zjawisko, w którym te zmienne wspólnie się rozwijają.
+
+Zmienne skorelowane ujemnie to np. Koszt_Mieszkania i Edukacja, czy Koszt_Życia i Opieka_Zdrowotna. Oznacza to, że przy wzroście jednej zmiennej, druga spada – czyli np. wyższe koszty życia niekoniecznie idą w parze z lepszą opieką zdrowotną.
+
+Zmienne nieskorelowane, czyli takie, których rozwój lub zahamowanie nie ma przełożenia na inne zmienne, to np. Aktywność_Na_Świeżym_Powietrzu i Jakość_Środowiska, Opodatkowanie i Jakość_Środowiska, czy też Tolerancja..
+
+
+```{r, echo=FALSE, fig.width=7, fig.height=5, fig.cap="\\label{2cont}Dwuwykres z podziałem na kontynenty"}
+levels(dane$Kontynent) <- c("Afryka", "Azja", "Europa", "Ameryka Płn.", "Oceania", "Ameryka Płd.")
+fviz_pca_biplot(data.after.pca, label="var", col.ind=dane$Kontynent,  addEllipses=TRUE, elipse.level=.95)
+```
+Rysunek \ref{2cont} również przedstawia dwuwykres zmiennych, jednak z dodatkowym podziałem na kontynenty. Można zauważyć, że Oceania, Europa i Ameryka Północna znajdują się w jednym obszarze wykresu, co może wskazywać na wysoki poziom rozwoju gospodarczego i ekonomicznego. Z kolei Afryka i Ameryka Południowa są umiejscowione po lewej stronie wykresu. Może to sugerować, że koszty życia i mieszkania są tam niższe, jednak równocześnie wiele zmiennych gospodarczych, kulturowych i ekonomicznych – takich jak opieka zdrowotna, kultura i rozrywka czy dostęp do internetu – osiąga znacznie niższe wartości niż na wcześniej wspomnianych kontynentach.
+
+Na wykresie widoczne jest również, że miasta azjatyckie są rozproszone po całym obszarze, co może świadczyć o dużym zróżnicowaniu poziomu rozwoju między nimi.
+
+```{r, echo=FALSE, fig.width=10, fig.height=7, fig.cap="\\label{cor}Macierz korelacji"}
+correlation.matrix <- cor(data.pca)
+corrplot(correlation.matrix)
+
+```
+Korzystając z Rysunku \ref{cor}, możemy wysnuć analogiczne wnioski jak na podstawie dwuwykresu. Zależności zauważone wcześniej potwierdzają się w danych odczytanych z macierzy korelacji. Jednak dzięki jej bardziej przejrzystej formie, można łatwiej dostrzec dodatkowe zależności, np. silną dodatnią korelację między zmiennymi: Wolność_Biznesu i Gospodarka, Opodatkowanie i Edukacja, Startupy i Kapitał_Podwyższonego_Ryzyka, Koszt_Życia i Koszt_Mieszkania.
+
+Ujemna korelacja występuje np. między zmiennymi: Edukacja a Koszt_Mieszkania i Koszt_Życia, a także Jakość_Środowiska z Kosztem_Życia i Startupami. Brak korelacji obserwujemy np. między Opodatkowaniem a Tolerancją.
+
+Można więc zauważyć, że wnioski są spójne, jednak analiza macierzy korelacji zmniejsza ryzyko błędnej interpretacji dzięki większej czytelności.
+
+## Wnioski końcowe
+
+Wykonując analizę składowych głównych, powiązaliśmy wektor PC1 z rozwojem gospodarczym, PC2 z nowoczesnością państwa, a PC3 z poziomem i wygodą życia. Na podstawie wykresów dostrzegliśmy także, że do wyjaśnienia 80% i 90% całkowitej zmienności potrzebujemy odpowiednio 7 i 10 pierwszych składowych głównych.
+
+Następnie, korzystając z mapy rozproszenia, mogliśmy zaobserwować, że kontynenty takie jak Europa, Oceania i Ameryka Północna znajdują się na podobnym poziomie rozwoju oraz gospodarczym. Analogicznie, w jednym obszarze wykresu znalazły się Azja, Afryka oraz Ameryka Południowa. Choć oddalone od wcześniej wspomnianych kontynentów, te trzy regiony również znajdują się na porównywalnym poziomie według analizowanych wskaźników.
+
+Ciekawą obserwacją było także przypisanie największej wartości wektora PC1 Singapurowi, co może świadczyć o silnej gospodarce tego miasta-państwa, oraz najniższej wartości PC2 Delhi, co może wskazywać na mniejsze znaczenie innowacyjności i nowoczesnych rozwiązań.
+
+Na początku została wykonana standaryzacja danych, dzięki której późniejsza analiza była bardziej adekwatna i czytelna, a ważne informacje nie zostały zagubione. Bez standaryzacji jedna zmienna mogłaby zdominować dane, co prowadziłoby do zniekształconych wyników. Ponadto, dzięki standaryzacji, wykresy rozrzutu i dwuwykresy były czytelne i przejrzyste, a dane nie były skupione w jednym miejscu.
+
+# Skalowanie wielowymiarowe
+
+## Krótki opis zagadnienia
+
+Celem raportu jest analiza danych dotyczących pasażerów Titanica przy użyciu skalowania wielowymiarowego (MDS). Dane zawierają informacje o charakterystykach pasażerów, takich jak wiek, płeć, klasa pasażerska oraz informację o przeżyciu katastrofy. Główne pytania badawcze to:
+
+-   Czy możliwe jest zredukowanie wymiaru danych przy zachowaniu istotnych informacji?
+
+-   Czy istnieje widoczny podział pasażerów na grupy związane z przeżyciem katastrofy, płcią lub klasą pasażerską?
+
+-   Czy w danych występują obserwacje nietypowe?
+
+```{r przygotowanie_danych, echo=FALSE}
+# Wczytanie danych
+data("titanic_train")
+
+# Usunięcie zbędnych kolumn
+titanic_train <- titanic_train[, !(names(titanic_train) %in% c("PassengerId", "Name", "Ticket", "Cabin"))]
+#str(titanic_train)
+
+# Zmiana nazw kolumn na polskie
+colnames(titanic_train) <- c("Przeżycie", "Klasa", "Płeć", 
+                            "Wiek", "Rodzeństwo_małżonkowie", "Rodzice_dzieci", 
+                            "Opłata", "Port")
+
+
+# Konwersja typów zmiennych
+titanic_train$Przeżycie <- as.factor(titanic_train$Przeżycie)
+titanic_train$Klasa <- as.ordered(titanic_train$Klasa)
+titanic_train$Płeć <- as.factor(titanic_train$Płeć)
+
+# Usunięcie danych z brakującymi informacjami dotyczącymi portu
+port <- subset(titanic_train, Port == "")
+titanic_train <- subset(titanic_train, Port != "")
+
+# Konwersja typu zmiennej Port
+titanic_train$Port <- as.factor(titanic_train$Port)
+
+# Konwersja typów zmiennych numerycznych
+titanic_train$Rodzeństwo_małżonkowie <- as.numeric(titanic_train$Rodzeństwo_małżonkowie)
+titanic_train$Rodzice_dzieci <- as.numeric(titanic_train$Rodzice_dzieci)
+
+# Podgląd struktury danych
+#str(titanic_train)
+
+# Usunięcie danych z brakującymi informacjami dotyczącymi wieku
+#colSums(is.na(titanic_train))
+titanic_train_brakujacy_wiek <- titanic_train
+titanic_train <- na.omit(titanic_train)
+
+# Podgląd danych
+#head(titanic_train)
+
+```
+
+```{r MDS, echo=FALSE, eval=TRUE}
+# Przygotowanie danych do MDS (pominięcie zmiennej Przeżycie)
+dane_mds <- titanic_train[, !(names(titanic_train) %in% c("Przeżycie"))]
+rekordy_analiza <- nrow(dane_mds)
+
+# Macierz odmienności
+# Definicja typów zmiennych dla odległości Gowera
+macierz_odmiennosci <- daisy(dane_mds,
+                    metric = "gower",
+                    type = list(
+                      ordratio = "Klasa",
+                      numeric = c("Wiek", "Rodzeństwo_małżonkowie", "Rodzice_dzieci", "Opłata"),
+                      factor = c("Płeć", "Port")
+                    ))
+
+# Niemetryczne MDS (NMDS)
+set.seed(220)  # pod stałe wyniki w raporcie
+
+# Dodanie małego szumu do zerowych odległości (dla stabilności MDS)
+macierz_odmiennosci[macierz_odmiennosci == 0] <- macierz_odmiennosci[macierz_odmiennosci == 0] + 1e-8
+
+wynik_nmds <- isoMDS(macierz_odmiennosci, k = 2, trace = FALSE)
+
+# Współczynnik stresu
+wspolczynnik_stresu <- round(wynik_nmds$stress, 3)
+
+# Przygotowanie danych do wykresu
+wynik_df <- data.frame(
+  NMDS1 = wynik_nmds$points[, 1],
+  NMDS2 = wynik_nmds$points[, 2],
+  titanic_train[rownames(dane_mds), c("Przeżycie", "Płeć", "Klasa")],
+  Oryginalny_ID = rownames(titanic_train)[rownames(dane_mds)]
+)
+```
+
+### Przeprowadzone analizy
+
+W projekcie wykonano redukcję wymiaru przy użyciu skalowania wielowymiarowego (MDS) na danych dotyczących pasażerów Titanica. Główne etapy obejmują:
+
+-   *Przygotowanie danych:*
+
+    -   Usunięcie zbędnych zmiennych (ID, nazwisk, numerów biletów itp.)
+
+    -   Konwersję typów zmiennych (Płeć, Klasa, Port)
+
+    -   Obsługę brakujących wartości (usunięcie rekordów z brakującymi danymi dla kluczowych zmiennych)
+
+-   *Redukcję wymiaru:*
+
+    -   Obliczenie macierzy odmienności z użyciem odległości Gowera (dla danych mieszanych: ilościowych i jakościowych)
+
+    -   Wykonanie niemetrycznego MDS (NMDS) z 2 wymiarami docelowymi (k = 2)
+
+    -   Ocena jakości odwzorowania za pomocą współczynnika stresu i diagramu Sheparda
+
+-   *Wizualizację i interpretację:*
+
+    -   Wykresy rozrzutu z podziałem na:
+
+        -   Przeżycie (Survived)
+
+        -   Płeć (Sex)
+
+        -   Klasę (Pclass)
+
+    -   Dodanie elips grupowych (80% przedział ufności) i obserwacji odstających
+
+    -   Analiza skupisk i wzorców przestrzennych
+
+### Wykorzystane narzędzia
+
+**Metody statystyczne:**
+
+-   Skalowanie wielowymiarowe (MDS) – wariant niemetryczny
+
+-   Analiza skupień oparta na odległościach
+
+-   Obliczanie odległości dla identyfikacji outlierów (wyników odstających)
+
+**Wizualizacje:**
+
+-   Wykresy rozrzutu 2D z ggplot2 (geom_point, stat_ellipse)
+
+-   Diagram Sheparda (Shepard z pakietu MASS)
+
+-   Kontury gęstości (stat_density_2d)
+
+-   Etykiety outlierów (geom_label_repel z ggrepel)
+
+**Testy jakościowe:**
+
+-   Ocena stresu MDS
+
+-   Wizualna analiza separacji grup na wykresach
+
+### Wykorzystane parametry
+
+**Dane wejściowe:**
+
+-   *Próbka:* n = `r rekordy_analiza` pasażerów (po usunięciu braków danych)
+
+-   *Zmienne:*
+
+    -   Ilościowe: Wiek, Liczba rodzeństwa/małżonków, Liczba rodziców/dzieci, Opłata za bilet
+
+    -   Jakościowe: Płeć, Klasa, Port
+
+    -   Jakościowa: Przeżycie – używana tylko do interpretacji
+
+**Parametry MDS:**
+
+-   *Metryka:* odległość Gowera (dla danych mieszanych)
+
+-   *Algorytm:* niemetryczny MDS (isoMDS z pakietu MASS)
+
+-   *Wymiar docelowy:* d = 2
+
+-   *Współczynnik stresu:* `r wspolczynnik_stresu`%, wynik sugeruje, że:
+
+    -   Najsilniejsze trendy (np. podział na klasy/płeć) są prawdopodobnie realnie zachowane
+
+    -   Detale i słabsze wzorce mogą być zniekształcone
+
+    -   Odległości między punktami na wykresie są przybliżone (nie dokładne)
+
+## Wyniki
+
+### Wykresy i tabele
+
+```{r macierz_odm, echo=FALSE, fig.cap="\\label{modm}Wizualizacja macierzy odmienności"}
+
+macierz_odm <- as.matrix(macierz_odmiennosci)
+
+
+ggplot(melt(macierz_odm), aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(
+    name = "Odległość Gowera",
+    low = "yellow",
+    high = "red",
+    limits = c(0, 1)
+  ) +
+  labs(
+    title = "Macierz odmienności",
+    subtitle = paste("Liczba obserwacji:", nrow(macierz_odm)),
+    x = "Indeks obserwacji",
+    y = "Indeks obserwacji"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    legend.position = "bottom"
+  )
+```
+
+```{r Shepard, echo=FALSE, eval=TRUE, fig.cap="\\label{Shepard}Diagram Sheparda"}
+plot_shepard <- function(dist, points) {
+  s <- Shepard(dist, points)
+  plot(s, pch = 19, col = "blue",
+       xlab = "Odległości oryginalne", 
+       ylab = "Odległości w redukcji wymiarów",
+       axes = TRUE,
+       frame.plot = FALSE)
+  abline(0, 1, col = "black", lty = 1)
+}
+plot_shepard(macierz_odmiennosci, wynik_nmds$points)
+```
+
+**Diagram Sheparda** (Rysunek \ref{Shepard})
+
+* *Jakość odwzorowania:* 
+  - Diagram Sheparda pokazuje zależność między oryginalnymi odległościami (Gowera) a odległościami w przestrzeni MDS. Jeśli punkty leżą blisko linii 1:1, odwzorowanie jest dobre. W tym przypadku widoczne jest pewne rozproszenie, co sugeruje, że NMDS przybliża odległości, ale nie idealnie.
+
+* *Wnioski:* 
+  - Współczynnik stresu (`r wspolczynnik_stresu` %) wskazuje na umiarkowaną jakość odwzorowania. Silne trendy (np. podział na klasy/płeć) są widoczne, ale detale mogą być zniekształcone.
+
+```{r wykres_przezycia, echo=FALSE, eval=TRUE, fig.cap="\\label{rys_przezycie}Wykres rozkładu względem przeżycia"}
+
+outliers_przezycie <- wynik_df %>%
+  group_by(Przeżycie) %>%
+  mutate(maha_dist = mahalanobis(cbind(NMDS1, NMDS2), 
+                               center = colMeans(cbind(NMDS1, NMDS2)), 
+                               cov = cov(cbind(NMDS1, NMDS2)))) %>%
+  arrange(desc(maha_dist)) %>%
+  slice_head(n = 3)  
+
+ggplot(wynik_df, aes(NMDS1, NMDS2, color = Przeżycie, fill = Przeżycie)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_density_2d(geom = "polygon", alpha = 0.15, show.legend = FALSE) +
+  stat_ellipse(level = 0.8, linewidth = 0.7, alpha = 0.5) +
+  geom_label_repel(
+    data = outliers_przezycie,
+    aes(label = rownames(outliers_przezycie)),
+    color = "black",
+    box.padding = 0.5,
+    max.overlaps = 20,
+    show.legend = FALSE  # Kluczowa zmiana
+  ) +
+  scale_color_brewer(palette = "Set1", labels = c("Nie przeżył", "Przeżył")) +
+  scale_fill_brewer(palette = "Set1", guide = "none") +  # Ukrywa legendę dla fill
+  labs(title = "Rozkład względem przeżycia") +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold", hjust = 0.5, color = "#333333"),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(face = "bold")
+  ) +
+  guides(color = guide_legend(override.aes = list(shape = 16)))
+```
+
+**Wykres rozkładu względem przeżycia** (Rysunek \ref{rys_przezycie})
+
+* *Podział na grupy:* 
+  - Widoczny jest częściowy podział na grupy "przeżył" vs "nie przeżył", ale z dużym nakładaniem się elips (80% przedział ufności). Sugeruje to, że przeżycie zależy od innych czynników (np. klasy, płci), a nie tylko od pozycji w MDS.
+
+* *Obserwacje odstające:* 
+  - Zidentyfikowano kilka outlierów, które mogą odpowiadać nietypowym przypadkom (np. pasażerom o skrajnych wartościach wieku lub opłaty).
+
+
+```{r wykres_plci, echo=FALSE, eval=TRUE, fig.cap="\\label{rys_plec}Wykres rozkładu względem płci"}
+outliers_plec <- wynik_df %>%
+  group_by(Płeć) %>%
+  mutate(maha_dist = mahalanobis(cbind(NMDS1, NMDS2), 
+                               center = colMeans(cbind(NMDS1, NMDS2)), 
+                               cov = cov(cbind(NMDS1, NMDS2)))) %>%
+  arrange(desc(maha_dist)) %>%
+  slice_head(n = 3)
+
+ggplot(wynik_df, aes(NMDS1, NMDS2, color = Płeć, fill = Płeć)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_density_2d(geom = "polygon", alpha = 0.15, show.legend = FALSE) +
+  stat_ellipse(level = 0.8, linewidth = 0.7, alpha = 0.5) +
+  geom_label_repel(
+    data = outliers_plec,
+    aes(label = rownames(outliers_plec)),
+    color = "black",
+    box.padding = 0.5,
+    show.legend = FALSE
+  ) +
+  scale_color_manual(values = c("#FF69B4", "#4682B4"), labels = c("Kobieta", "Mężczyzna")) +
+  scale_fill_manual(values = c("#FF69B4", "#4682B4"), guide = "none") +
+  labs(title = "Rozkład względem płci") +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold", hjust = 0.5, color = "#333333"),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(face = "bold")
+  ) +
+  guides(color = guide_legend(override.aes = list(shape = 16)))
+```
+
+**Wykres rozkładu względem płci** (Rysunek \ref{rys_plec})
+
+* *Podział na grupy:* 
+  - Silny podział ze względu na płeć – kobiety i mężczyźni tworzą wyraźne skupiska z minimalnym nakładaniem się. Odzwierciedla to historyczne fakty (priorytet dla kobiet podczas ewakuacji).
+
+* *Obserwacje odstające:* 
+  - Outliery mogą dotyczyć np. osób z ekstremalnymi wartościami, możliwie związanymi z opłatą lub wiekiem.
+
+```{r wykres_klasy, echo=FALSE, eval=TRUE, fig.cap="\\label{rys_klasy}Wykres rozkładu względem klasy"}
+outliers_klasa <- wynik_df %>%
+  group_by(Klasa) %>%
+  mutate(maha_dist = mahalanobis(cbind(NMDS1, NMDS2),
+                               center = colMeans(cbind(NMDS1, NMDS2)),
+                               cov = cov(cbind(NMDS1, NMDS2)))) %>%
+  arrange(desc(maha_dist)) %>%
+  slice_head(n = 3)
+
+ggplot(wynik_df, aes(NMDS1, NMDS2, color = Klasa, fill = Klasa)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_density_2d(geom = "polygon", alpha = 0.15, show.legend = FALSE) +
+  stat_ellipse(level = 0.8, linewidth = 0.7, alpha = 0.5) +
+  geom_label_repel(
+    data = outliers_klasa,
+    aes(label = rownames(outliers_klasa)),
+    color = "black",
+    box.padding = 0.5,
+    show.legend = FALSE
+  ) +
+  scale_color_brewer(palette = "Dark2", labels = c("Pierwsza", "Druga", "Trzecia")) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  labs(title = "Rozkład względem klasy") +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold", hjust = 0.5, color = "#333333"),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(face = "bold")
+  ) +
+  guides(color = guide_legend(override.aes = list(shape = 16)))
+```
+
+**Wykres rozkładu względem klasy** (Rysunek \ref{rys_klasy})
+
+* *Podział na grupy:* 
+  - Klasa pasażerska silnie wpływa na pozycję w MDS. Pasażerowie klasy 1 są wyraźnie oddzieleni od klasy 3, co może odzwierciedlać różnice w opłatach, lokalizacji kajut lub priorytetach ewakuacyjnych.
+
+* *Obserwacje odstające:* 
+  - Nietypowe rekordy mogą dotyczyć pasażerów o niestandardowych cechach związanych z wiekiem, opłatą lub inną cechą ilościową z oryginalnej ramki danych.
+
+```{r tabela_titanic, echo=FALSE, eval=TRUE, results='asis'}
+
+tabela_przezycia <- titanic_train %>%
+  filter(!is.na(Klasa) & !is.na(Płeć) & !is.na(Przeżycie)) %>%
+  count(Klasa, Płeć, Przeżycie) %>%
+  mutate(Przeżycie = ifelse(Przeżycie == 1, "Przeżył", "Nie_Przeżył"),
+         Klasa = case_when(
+           Klasa == 1 ~ "Pierwsza",
+           Klasa == 2 ~ "Druga",
+           Klasa == 3 ~ "Trzecia"
+         ),
+         Płeć = ifelse(Płeć == "female", "Kobieta", "Mężczyzna")) %>%
+  pivot_wider(names_from = Przeżycie, values_from = n, values_fill = 0) %>%
+  mutate(Suma = Przeżył + Nie_Przeżył,
+         `% przeżycia` = round(Przeżył/Suma*100, 1)) %>%
+  select(Klasa, Płeć, Przeżył, Nie_Przeżył, Suma, `% przeżycia`)
+
+
+tabela_przezycia %>%
+  kable(
+    caption = "Przeżywalność pasażerów Titanica według klasy i płci",
+    align = c("l", "l", "c", "c", "c", "c"),
+    col.names = c("Klasa", "Płeć", "Przeżył", "Nie przeżył", "Suma", "% przeżycia"),
+    format.args = list(big.mark = " ")
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE,
+    font_size = 12,
+    position = "center"
+  ) %>%
+  add_header_above(c(" " = 2, "Liczba osób" = 2, " " = 2)) %>%
+  row_spec(0, bold = TRUE) %>%
+  column_spec(6, color = "white", background = "#5C7EAF") %>%
+  footnote(
+    general = "Dane pochodzą ze zbioru titanic_train z pakietu titanic",
+    general_title = "Źródło:",
+    footnote_as_chunk = TRUE
+  )
+```
+
+**Główne wnioski tabeli przeżywalności:**
+
+  - *Kobiety:* Miały znacznie wyższą przeżywalność niż mężczyźni.
+
+  - *Klasa 1:* Najwyższa przeżywalność (96.8% dla kobiet, 39.6% dla mężczyzn), co potwierdza hipotezę o priorytecie dla bogatszych pasażerów.
+
+  - *Klasa 3:* Najniższa przeżywalność (46.1% kobiet, 15% mężczyzn), co może wynikać z gorszej lokalizacji kajut.
+
+## Podsumowanie wniosków
+
+**Redukcja wymiaru:** 
+- NMDS skutecznie uwidocznił główne trendy (płeć, klasa), ale stres (około `r wspolczynnik_stresu`%) wskazuje na przybliżony charakter odwzorowania.
+
+**Podziały grupowe:** 
+- Najsilniejsze dla płci i klasy – co zgadza się z historycznymi danymi.
+
+**Outliery:** 
+- Zidentyfikowano nietypowe przypadki, wymagające dalszej analizy (np. ze względu na ekstremalne wartości wieku/opłaty).
+
+**Tabela przeżywalności:** 
+- Potwierdza, że płeć i klasa były kluczowymi czynnikami przeżycia, co tłumaczy częściowo nakładanie się grup na wykresach MDS.

@@ -1,0 +1,586 @@
+---
+title: "Raport 4"
+author: "Olga Foriasz 277529, Szymon Smoła 282252"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    fig_caption: true
+    fig_width: 5
+    fig_height: 4
+    number_sections: true
+  html_document:
+    toc: true
+    df_print: paged
+header-includes:
+- \usepackage[OT4]{polski}
+- \usepackage[utf8]{inputenc}
+- \usepackage{graphicx}
+- \usepackage{float}
+subtitle: Eksploracja danych
+fontsize: 12pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+library(mlbench)
+library(DataExplorer)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+library(ipred)
+library(randomForest)
+library(e1071)
+library(cluster)
+library(factoextra)
+library(dplyr)
+```
+
+# Zaawansowane metody klasyfikacji
+
+## Rodziny klasyfikatorów/uczenie zespołowe
+
+```{r wgrywanie danych}
+data(PimaIndiansDiabetes2)
+dane <- na.omit(PimaIndiansDiabetes2)
+colnames(dane) <- polskie_nazwy <- c(
+  "ciaze",
+  "glukoza",
+  "cisnienie",
+  "triceps",
+  "insulina",
+  "BMI",
+  "dziedziczenie",
+  "wiek",
+  "cukrzyca"
+)
+
+## stanaryzacja danych
+numeric.features <- sapply(dane, is.numeric)
+data.pca <- dane[, numeric.features]
+dane_stand <- scale(data.pca)
+
+dane_stand_df <- as.data.frame(dane_stand)
+dane_stand_df$cukrzyca <- dane$cukrzyca
+```
+
+```{r zmienne dyskryminujace/pca}
+# Rozkład klas
+barplot(prop.table(table(dane$cukrzyca)), col=4:9, main="Dane PimaIndiansDiabets2 - rozkład klas")
+grid()
+
+# PCA (wizualizacja danych w 2D)
+dane2.pca <- prcomp(dane[, sapply(dane, is.numeric)], center=T, scale=T)
+summary(dane2.pca)
+plot(dane2.pca$x[,1:2], col=dane$cukrzyca, main="Dane PimaIndiansDiabets2 - wykres na bazie PCA", pch=15, cex=0.7)
+legend("topright", col=1:9, legend=levels(dane$cukrzyca), pch=15, bg="azure2")
+
+# ocena zdolności dyskryminacyjnych poszczególnych zmiennych
+plot_boxplot(dane, by="cukrzyca")
+```
+
+### Pojedyńcze drzewo klasyfikacyjne
+```{r drzewo klasyfikacyjne, fig.cap="\\label{drzewo}Drzewo klasyfikacyjne"}
+tree <- rpart(cukrzyca~., data=dane) #parametry domyślne
+rpart.plot(tree, main="Drzewo klasyfikacyjne - dane PimaIndiansDiabetes2", cex=.5)
+```
+
+Na powyższym Rysunku \ref{drzewo} przedstawione zostało drzewo klasyfikacyjne dla całego zbioru danych. Poniżej znajdują się dane ile wynosiły błędy klasyfikacyjne dla zbioru testowego:
+
+```{r blad poj drzewo}
+set.seed(123)
+n <- nrow(dane_stand_df)
+learning.set.index <- sample(1:n, 2/3 * n)
+learning.set <- dane_stand_df[learning.set.index, ]
+test.set <- dane_stand_df[-learning.set.index, ]
+n.learning <- nrow(learning.set)
+n.test <- nrow(test.set)
+
+model <- cukrzyca ~ ciaze + glukoza + cisnienie + triceps + wiek + BMI + dziedziczenie + wiek
+tree.simple <- rpart(model, data = learning.set)
+pred.labels.learning <- predict(tree.simple, newdata = learning.set, type = "class")
+pred.labels.test <- predict(tree.simple, newdata = test.set, type = "class")
+conf.mat.learning <- table(pred.labels.learning, learning.set$cukrzyca)
+conf.mat.test <- table(pred.labels.test, test.set$cukrzyca)
+
+error.rate.learning <- (n.learning - sum(diag(conf.mat.learning))) / n.learning
+error.rate.test <- (n.test - sum(diag(conf.mat.test))) / n.test
+cat("Błąd klasyfikacji - zbiór uczący:", round(error.rate.learning, 3), "\n")
+cat("Błąd klasyfikacji - zbiór testowy:", round(error.rate.test, 3), "\n")
+```
+
+### Metoda bagging
+
+```{r bagging, fig.cap="\\label{wykres1}Wykresy dla metody bagging"}
+btree <- bagging(cukrzyca~., data=dane, nbagg=25, minsplit=1, cp=0)
+# Jak liczba replikacji B (parametr nbagg) wpływa na dokładność modelu?
+B.vector <- c(1, 5, 10, 20, 30, 40, 50, 100)
+bagging.error.rates <- sapply(B.vector, function(b)  {errorest(cukrzyca~., data=dane, model=bagging, nbagg=b, estimator="632plus", est.para=control.errorest(nboot = 20))$error})
+plot(B.vector, bagging.error.rates, xlab="B", main="Bagging: error rate vs. B", type="b", col="#A2007B")
+grid()
+```
+Można zauważyć na Rysunku \ref{wykres1}, że wraz ze wzrostem liczby drzew błąd wyraźnie maleje do około 40 drzew, po czym stabilizuje się i przestaje znacząco spadać. Dalsze zwiększanie liczby drzew (np. do 100) nie poprawia wyników, a wręcz może nieznacznie je pogorszyć. Oznacza to, że optymalna liczba drzew mieści się w przedziale 40–60.
+
+### Metoda Random Forest
+
+```{r random forest, fig.cap="\\label{wykres2}Wykres dla metody Random Forest"}
+# liczba cech
+p <-  ncol(dane) - 1
+
+# różne parametry  (ntree - liczba drzew, mtry - liczba wybieranych losowo cech)
+rf.1 <- randomForest(cukrzyca~., data=dane, ntree=1, mtry=p, importance=TRUE)
+rf.2 <- randomForest(cukrzyca~., data=dane, ntree=100, mtry=sqrt(p), importance=TRUE)
+pred.labels <- predict(rf.2, newdata=dane, type="class")
+real.labels <- dane$cukrzyca
+(confusion.matrix <- table(pred.labels, real.labels)) # dla zbioru uczącego
+pred.probs <- predict(rf.2, newdata=dane, type="prob")
+# macierz pomyłek (confusion matrix)  na bazie OOB (Out-Of-Bag), tzn. obserwacji, 
+# które nie były wybierane w danej replikacji
+rf.2$confusion
+# Wykres błędu klasyfikacji
+plot(rf.2)
+```
+
+Wykres błędu dla metody Random Forest wskazuje, że model osiąga stabilność po około 40 drzewach — dalsze zwiększanie ich liczby nie przynosi istotnej poprawy wyników. Model lepiej klasyfikuje osoby bez cukrzycy, natomiast gorzej radzi sobie z wykrywaniem przypadków choroby. Taka asymetria może wynikać z nierównomiernego rozkładu klas w danych treningowych. Warto rozważyć zastosowanie technik wyrównania liczebności klas (np. oversampling, undersampling) lub innych miar oceny skuteczności modelu, które lepiej uwzględniają nierównowagę klas.
+
+```{r, fig.cap="\\label{wykres3}Istotność zmiennych"}
+# Ranking ważności cech
+varImpPlot(rf.2, 
+           main = "Istotność zmiennych", 
+           cex.main = 0.7)
+```
+
+Na wykresie nr \ref{wykres3} możemy zauważyć jakie zmienne odgrywają największą rolę w przyporządkowywaniu próby do zbioru. W obu przypadkach najbardziej znacząca jest zmienna glukoza. Widać także, że zdecydowanie dominuje w porównaniu do innych zmiennych.
+
+### Wnioski
+Przy zastosowaniu pojedynczego drzewa klasyfikacyjnego, błąd klasyfikacji dla zbioru testowego wynosił 24,4%. Zastosowanie metody bagging przyniosło istotną poprawę — przy odpowiednim doborze liczby replikacji B = 40, błąd klasyfikacyjny spadł do około 18%. Oznacza to wyraźną redukcję błędu w porównaniu do pojedynczego drzewa.
+
+W przypadku metody Random Forest zaobserwowano, że błąd przypisania do jednej z klas był znacznie niższy niż do drugiej — różnica wynosiła około 30 punktów procentowych. Całkowity błąd klasyfikacji od momentu ustalenia liczby drzew na poziomie 20 stabilizował się i utrzymywał na poziomie nieco ponad 20%.
+
+Podsumowując, najlepsze wyniki uzyskano dzięki metodzie bagging, która pozwoliła na największą redukcję błędu względem pojedynczego drzewa decyzyjnego. Choć metoda Random Forest również poprawiła jakość klasyfikacji, to jej skuteczność była mniejsza niż w przypadku baggingu — różnica w błędzie klasyfikacji między tymi dwiema metodami wynosiła około 10 punktów procentowych na korzyść baggingu.
+
+## Metoda wektorów nośnych (SVM)
+
+### Porównanie skuteczności funkcji jądrowych i parametru kosztów
+```{r przygotowanie_danych_svm}
+set.seed(123)
+
+data(PimaIndiansDiabetes2)
+dane <- na.omit(PimaIndiansDiabetes2)
+colnames(dane) <- polskie_nazwy <- c(
+  "ciaze",
+  "glukoza",
+  "cisnienie",
+  "triceps",
+  "insulina",
+  "BMI",
+  "dziedziczenie",
+  "wiek",
+  "cukrzyca"
+)
+
+numeric.features <- sapply(dane, is.numeric)
+data.pca <- dane[, numeric.features]
+dane_stand <- scale(data.pca)
+
+dane_stand_df <- as.data.frame(dane_stand)
+dane_stand_df$cukrzyca <- dane$cukrzyca
+
+n <- nrow(dane)
+learn.ind    <- sample(1:n, 2/3*n)
+training.set <- dane_stand_df[learn.ind, ]
+test.set     <- dane_stand_df[-learn.ind, ]
+```
+
+```{r jadro_liniowe1, fig.cap="\\label{wykres4}Wykresy funkcji jądrowych - jądro liniowe, C=0.1"}
+
+par(mfrow = c(1, 2))
+## c=0.1
+
+svm.linear.c0.1 <- svm(cukrzyca ~ glukoza + wiek, data=training.set, kernel="linear", cost=0.1)
+##summary(svm.linear.C0.1)
+plot(svm.linear.c0.1, data=training.set, glukoza~wiek, svSymbol=16, grid=100)
+
+real.labels <- test.set$cukrzyca
+n.test <- length(real.labels)
+pred.svm.lin.c0.1 <- predict(svm.linear.c0.1, newdata=test.set)
+acc.svm.lin.c0.1 <- sum(diag(table(pred.svm.lin.c0.1, real.labels))) / n.test
+cat("Skuteczność klasyfikacji:", round(acc.svm.lin.c0.1 , 3), "\n")
+```
+
+```{r jadro_liniowe2, fig.cap="\\label{wykres5}Wykresy funkcji jądrowych - jądro liniowe, C=1"}
+
+## c=1
+
+svm.linear.c1 <- svm(cukrzyca ~ glukoza + wiek, data=training.set, kernel="linear", cost=1)
+##summary(svm.linear.C1)
+plot(svm.linear.c1, data=training.set, glukoza~wiek, svSymbol=16, grid=100)
+
+real.labels <- test.set$cukrzyca
+n.test <- length(real.labels)
+pred.svm.lin.c.1 <- predict(svm.linear.c1, newdata=test.set)
+acc.svm.lin.c.1 <- sum(diag(table(pred.svm.lin.c.1, real.labels))) / n.test
+cat("Skuteczność klasyfikacji:", round(acc.svm.lin.c.1, 3), "\n")
+```
+
+```{r jadro_liniowe3, fig.cap="\\label{wykres6}Wykresy funkcji jądrowych - jądro liniowe, C=10"}
+
+## c=10
+
+svm.linear.c10 <- svm(cukrzyca ~ glukoza + wiek, data=training.set, kernel="linear", cost=10)
+##summary(svm.linear.C10)
+plot(svm.linear.c10, data=training.set, glukoza~wiek, svSymbol=16, grid=100)
+
+real.labels <- test.set$cukrzyca
+n.test <- length(real.labels)
+pred.svm.lin.c.10 <- predict(svm.linear.c10, newdata=test.set)
+acc.svm.lin.c.10 <- sum(diag(table(pred.svm.lin.c.10, real.labels))) / n.test
+cat("Skuteczność klasyfikacji:", round(acc.svm.lin.c.10, 3), "\n")
+
+```
+
+Na wykresach \ref{wykres4}–\ref{wykres6} przedstawiono funkcje decyzyjne SVM dla zmiennych glukoza oraz wiek, z wykorzystaniem jądra liniowego i różnych wartości parametru kosztu. Najwyższą skuteczność klasyfikacji uzyskano przy najmniejszej wartości parametru C=0.1 Różnice w skuteczności dla wyższych wartości parametru są jednak niewielkie i wynoszą około 2%.
+
+```{r jadro_radialne1, fig.cap="\\label{wykres7}Wykresy funkcji jądrowych - jądro radialne, C=0.1"}
+
+## c=0.1
+
+svm.radial.c0.1 <- svm(cukrzyca ~ glukoza + wiek, data=training.set, kernel="radial", cost=0.1)
+##summary(svm.linear.C0.1)
+plot(svm.radial.c0.1, data=training.set, glukoza~wiek, svSymbol=16, grid=100)
+
+real.labels <- test.set$cukrzyca
+n.test <- length(real.labels)
+pred.svm.radial.c0.1 <- predict(svm.radial.c0.1, newdata=test.set)
+acc.svm.radial.c0.1 <- sum(diag(table(pred.svm.radial.c0.1, real.labels))) / n.test
+cat("Skuteczność klasyfikacji:", round(acc.svm.radial.c0.1, 3), "\n")
+```
+
+```{r jadro_radialne2, fig.cap="\\label{wykres8}Wykresy funkcji jądrowych - jądro radialne, C=1"}
+## c=1
+
+svm.radial.c1 <- svm(cukrzyca ~ glukoza + wiek, data=training.set, kernel="radial", cost=1)
+##summary(svm.linear.C1)
+plot(svm.radial.c1, data=training.set, glukoza~wiek, svSymbol=16, grid=100)
+
+real.labels <- test.set$cukrzyca
+n.test <- length(real.labels)
+pred.svm.radial.c.1 <- predict(svm.radial.c1, newdata=test.set)
+acc.svm.radial.c.1 <- sum(diag(table(pred.svm.radial.c.1, real.labels))) / n.test
+cat("Skuteczność klasyfikacji:", round(acc.svm.radial.c.1, 3), "\n")
+```
+
+```{r jadro_radialne3, fig.cap="\\label{wykres9}Wykresy funkcji jądrowych - jądro radialne, C=10"}
+
+## c=10
+
+svm.radial.c10 <- svm(cukrzyca ~ glukoza + wiek, data=training.set, kernel="radial", cost=10)
+##summary(svm.linear.C10)
+plot(svm.radial.c10, data=training.set, glukoza~wiek, svSymbol=16, grid=100)
+
+real.labels <- test.set$cukrzyca
+n.test <- length(real.labels)
+pred.svm.radial.c.10 <- predict(svm.radial.c10, newdata=test.set)
+acc.svm.radial.c.10 <- sum(diag(table(pred.svm.radial.c.10, real.labels))) / n.test
+cat("Skuteczność klasyfikacji:", round(acc.svm.radial.c.10, 3), "\n")
+```
+
+Na wykresach \ref{wykres7}–\ref{wykres9} przedstawiono funkcje decyzyjne SVM dla zmiennych glukoza oraz wiek, z wykorzystaniem jądra radialnego i różnych wartości parametru kosztu C. Najlepszą skuteczność klasyfikacji uzyskano dla C = 0.1 – wyniosła 81,7%. Niższą skuteczność (80,2%) osiągnięto przy C = 10. Natomiast jeszcze gorszy wynik (79,4%) uzyskano przy C = 1.
+
+Wybór funkcji jądrowej oraz parametru kosztu C wpływa na skuteczność klasyfikacji. Różnice są jednak niewielkie, a przy odpowiednio dobranych wartościach parametru C wyniki mogą być porównywalne. Niemniej jednak, dla tych samych parametrów funkcje jądrowe radialne osiągnęły lepsze rezultaty.
+
+### Dobranie najlepszych parametrów dla jądra radialnego
+
+Poniższe wykresy przedstawiają dokładność klasyfikacji w zależności od parametru gamma oraz cost (parametr oznaczony jako C).
+
+```{r radialne_parametry, fig.cap="\\label{wykres10}Wykresy funkcji jądrowej (jądro radialne)"}
+C.range <- 2^((-4):4)
+set.seed(123)
+gamma.range <- 2^((-8):4)
+radial.tune <- tune(svm, train.x=training.set[,c("glukoza", "wiek")],
+                    train.y=training.set[,"cukrzyca"],
+                    kernel="radial",
+                    ranges=list(cost=C.range, gamma=gamma.range))
+
+print(radial.tune)
+plot(radial.tune, transform.x=log, transform.y=log, color.palette = topo.colors)
+plot(radial.tune, type="perspective")
+
+
+# Dopasowujemy końcowy model dla optymalnych parametrów
+
+C.best <- radial.tune$best.parameters[["cost"]]
+gamma.best <- radial.tune$best.parameters[["gamma"]]
+
+svm.radial.tuned <- svm(cukrzyca~glukoza+wiek,
+                        data=training.set, kernel="radial",
+                        cost=C.best, gamma=gamma.best)
+##summary(svm.radial.tuned)
+
+# Prognozowanie na bazie optymalnego modelu
+
+pred.svm.radial.tuned <- predict(svm.radial.tuned, newdata=test.set)
+acc.svm.radial <- sum(diag(table(pred.svm.radial.tuned, real.labels)))/n.test
+cat("Skuteczność klasyfikacji:", round(acc.svm.radial, 3), "\n")
+
+```
+
+Porównując dokładność klasyfikacji dla modelu z optymalnie dobranymi parametrami (gamma = 0.625 oraz C = 16) z modelem skonstruowanym dla domyślnych parametrów (C = 1), otrzymano taką samą skuteczność – 80,2%. Co ciekawe, jeszcze lepszy wynik – 80,9% – uzyskano dla modelu z niższą wartością parametru C = 0.1, bez przeprowadzania pełnej optymalizacji. Oznacza to, że w tym przypadku optymalizacja parametrów nie przyniosła poprawy skuteczności klasyfikatora, a prostszy model poradził sobie najlepiej.
+
+## Porównanie skuteczności metod
+
+Porównując metody klasyfikatorów z rodziny drzew decyzyjnych oraz uczenia zespołowego (punkt a) z metodą wektorów nośnych SVM (punkt b), można zauważyć, że wyższą skuteczność w większości przypadków uzyskano przy wykorzystaniu metody SVM, mimo że w analizie tej ograniczono się jedynie do dwóch zmiennych: glukozy i wieku.
+
+Najniższą skuteczność w ramach SVM odnotowano przy zastosowaniu jądra liniowego – 74,8%, co i tak jest porównywalne lub lepsze niż wyniki uzyskane w niektórych wariantach metod klasyfikatorów zespołowych. Najlepszy wynik osiągnięto dla jądra radialnego z parametrem C=0.1, gdzie skuteczność klasyfikacji wyniosła 81,7%.
+
+W przypadku uczenia zespołowego, najlepsze rezultaty uzyskano stosując metodę bagging przy liczbie replikacji równej 40 – błąd klasyfikacji wyniósł wtedy 18%, co odpowiada skuteczności 82%. Dla pozostałych wariantów błąd klasyfikacji był wyraźnie wyższy, wynosząc ok. 25%.
+
+Podsumowując, najlepszą skuteczność uzyskano przy metodzie bagging (82%), jednak metoda wektorów nośnych również wykazała bardzo wysoką, zbliżoną skuteczność, mimo uproszczonego podejścia. SVM okazała się stabilną i skuteczną metodą klasyfikacyjną, szczególnie biorąc pod uwagę, że nie wykorzystano wszystkich dostępnych zmiennych predykcyjnych.
+
+# Analiza skupień – algorytmy grupujące i hierarchiczne
+
+## Wybór i przygotowanie danych
+
+```{r wybor_danych, echo=FALSE}
+data(PimaIndiansDiabetes2)
+
+dane_pima <- na.omit(PimaIndiansDiabetes2)
+
+set.seed(123)
+if(nrow(dane_pima) > 200) {
+  dane_pima <- dane_pima %>% sample_n(200)
+}
+
+etykiety <- dane_pima$diabetes
+dane <- dane_pima[,-9]
+
+dane_std <- scale(dane)
+```
+
+Wylosowano 200 rekordów z danych PimaIndiansDiabetes2 z pakietu mlbench. Dane te mają jedną zmienną grupującą nasze obserwacje na dwie klasy (cukrzyków i osoby bez cukrzycy). Standaryzacja była konieczna ponieważ cechy ilościowe mają różne jednostki i zakresy wartości.
+
+## Wizualizacja wyników grupowania
+
+```{r PAM, echo=FALSE, fig.cap="\\label{PAM}Analiza skupień - PAM"}
+pima.MacNiepodob <- daisy(dane)
+pima.MacNiepodob.matrix <- as.matrix(pima.MacNiepodob)
+
+pima.pam2 <- pam(x=pima.MacNiepodob, diss=TRUE, k=2)
+
+etykietki.pam2 <- pima.pam2$clustering
+
+pima.MDS <- cmdscale(d=pima.MacNiepodob, k=2)
+
+symbole <- 16:17
+plot(pima.MDS[,1],pima.MDS[,2], col=etykietki.pam2, pch=symbole[dane_pima$diabetes], main="Wizualizacja wyników analizy skupień \n (Algorytm PAM)")
+legend(x="topright", pch=symbole, legend=levels(dane_pima$diabetes))
+```
+
+Wyniki grupowania algorytmem **PAM** dla **K=2** z rysunku \ref{PAM} słabo pokazują zgodność z rzeczywistymi klasami. Wykres MDS pozwala zauważyć, że:
+
+ - Grupy są względnie zwarte, ale nie idealnie separowalne
+
+ - Istnieje niewielka korelacja między przynależnością do skupień a rzeczywistymi klasami
+
+```{r AGNES, echo=FALSE, fig.cap="\\label{agnes3}Analiza skupień - AGNES"}
+library(cluster)
+
+pima.agnes.avg <- agnes(x=pima.MacNiepodob.matrix,diss=TRUE, method="average")
+pima.agnes.single <- agnes(x=pima.MacNiepodob.matrix,diss=TRUE, method="single")
+pima.agnes.complete <- agnes(x=pima.MacNiepodob.matrix,diss=TRUE, method="complete")
+
+K <- 2
+clusters_avg <- cutree(pima.agnes.avg, k = 2)
+clusters_single <- cutree(pima.agnes.single, k = K)
+clusters_complete <- cutree(pima.agnes.complete, k = K)
+
+par(mfrow = c(1, 3))
+
+plot(pima.MDS[,1], pima.MDS[,2], 
+     col = clusters_avg, 
+     pch = symbole[dane_pima$diabetes],
+     main = "AGNES \n average linkage")
+legend("topright", legend = c("neg", "pos"), pch = symbole, title = "Diabetes")
+
+plot(pima.MDS[,1], pima.MDS[,2], 
+     col = clusters_single, 
+     pch = symbole[dane_pima$diabetes],
+     main = "AGNES \n single linkage")
+legend("topright", legend = c("neg", "pos"), pch = symbole, title = "Diabetes")
+
+plot(pima.MDS[,1], pima.MDS[,2], 
+     col = clusters_complete, 
+     pch = symbole[dane_pima$diabetes],
+     main = "AGNES \n complete linkage")
+legend("topright", legend = c("neg", "pos"), pch = symbole, title = "Diabetes")
+```
+Wykresy przedstawione na rysunku \ref{agnes3} dla ustalonego **K=2** są niejako zwarte i spójne, ale widać na nich sporą separację przestrzenną. 
+Podział na klastry metodami AGNES ma w naszym przypadku małą zgodnośc z rzeczywistą przynależnością obiektów do klas.
+
+
+```{r AGNES2, echo=FALSE, fig.cap="\\label{dendo}Dendogramy - algorytm AGNES"}
+
+library(cluster)
+library(gridExtra)
+
+pima.agnes.avg <- agnes(x=pima.MacNiepodob.matrix,diss=TRUE, method="average")
+pima.agnes.single <- agnes(x=pima.MacNiepodob.matrix,diss=TRUE, method="single")
+pima.agnes.complete <- agnes(x=pima.MacNiepodob.matrix,diss=TRUE, method="complete")
+
+p1 <- fviz_dend(pima.agnes.avg, cex=0.4, main="Dendrogram \n average linkage")
+p2 <- fviz_dend(pima.agnes.single, cex=0.4, main="Dendrogram \n single linkage")
+p3 <- fviz_dend(pima.agnes.complete, cex=0.4, main="Dendrogram \n complete linkage")
+grid.arrange(p1, p2, p3, ncol = 3)
+```
+
+Na rysunku \ref{dendo} porównano trzy metody łączenia skupień:
+
+ - Average linkage: tworzy całkiem zrównoważone grupy
+
+ - Single linkage: wykazuje tendencję do tworzenia długich, łańcuchowych skupień
+
+ - Complete linkage: tworzy bardziej zwarte skupienia
+
+Dendrogramy wyraźnie pokazują różnice w strukturze hierarchicznej w zależności od metody łączenia. Metody average i complete wydają się być najlepiej zbilansowane, a metoda single utworzyła wąskie i wydłużone skupiska.
+
+
+
+## Ocena jakości grupowania
+
+### Wskaźniki wewnętrzne
+
+```{r silhouette, echo=FALSE, fig.cap="\\label{silh}Porównanie jakości grupowania - Silhouette"}
+library(cluster)
+library(factoextra)
+
+k_range <- 2:6
+
+calculate_silhouette <- function(data, method, k_range) {
+  sapply(k_range, function(k) {
+    if(method == "pam") {
+      clust <- pam(data, k = k, diss = TRUE)
+    } else {
+      clust <- agnes(data, diss = TRUE, method = method)
+      clust <- cutree(clust, k = k)
+    }
+    sil <- silhouette(clust, dist = data)
+    mean(sil[, 3])
+  })
+}
+
+sil_pam <- calculate_silhouette(pima.MacNiepodob, "pam", k_range)
+sil_avg <- calculate_silhouette(pima.MacNiepodob, "average", k_range)
+sil_single <- calculate_silhouette(pima.MacNiepodob, "single", k_range)
+sil_complete <- calculate_silhouette(pima.MacNiepodob, "complete", k_range)
+
+plot(k_range, sil_pam, type = "b", col = "red", ylim = c(0, 1),
+     xlab = "Liczba skupień (K)", ylab = "Średnia wartość indeksu Silhouette",
+     main = "Porównanie jakości grupowania")
+lines(k_range, sil_avg, type = "b", col = "blue")
+lines(k_range, sil_single, type = "b", col = "green")
+lines(k_range, sil_complete, type = "b", col = "purple")
+legend("topright", legend = c("PAM", "AGNES average", "AGNES single", "AGNES complete"),
+       col = c("red", "blue", "green", "purple"), lty = 1)
+
+```
+
+Analiza średnich wartości indeksu Silhouette dla różnych metod i liczby skupień K=2-6 na rysunku \ref{silh} pokazuje, że:
+
+ - Najwyższe wartości osiągają algorytmy AGNES dla K=2 (około 0.8)
+
+ - Metody hierarchiczne osiągają podobne wyniki, z niewielką przewagą metody average
+
+ - Optymalna liczba skupień to K=2 dla wszystkich metod
+
+### Wskaźniki zewnętrzne
+
+```{r wsk_zew, echo=FALSE}
+porownaj_grupy <- function(grupy, prawdziwe_klasy) {
+  tabela <- table(grupy, prawdziwe_klasy)
+  sum(diag(tabela))/sum(tabela)
+}
+
+agnes_complete <- hclust(pima.MacNiepodob, method = "complete")
+agnes_single <- hclust(pima.MacNiepodob, method = "single")
+agnes_average <-hclust(pima.MacNiepodob, method = "average")
+
+pam_k2 <- pam(dane_std, k = 2)$clustering
+agnes_k2_c <- cutree(agnes_complete, k = 2)
+agnes_k2_s <- cutree(agnes_single, k = 2)
+agnes_k2_a <- cutree(agnes_average, k = 2)
+
+pam_zgodnosc <- porownaj_grupy(pam_k2, etykiety)
+agnes_c_zgodnosc <- porownaj_grupy(agnes_k2_c, etykiety)
+agnes_s_zgodnosc <- porownaj_grupy(agnes_k2_s, etykiety)
+agnes_a_zgodnosc <- porownaj_grupy(agnes_k2_a, etykiety)
+```
+
+Porównanie z rzeczywistymi etykietami klas (diabetes):
+
+PAM: 69% zgodności
+
+AGNES complete: 63% zgodności
+
+AGNES single: 63% zgodności
+
+AGNES average: 63% zgodności
+
+Algorytm PAM osiągnął najlepszą zgodność z rzeczywistym podziałem na klasy.
+
+## Interpretacja wyników grupowania
+
+```{r srednie, echo=FALSE}
+
+dane_analiza <- dane
+dane_analiza$Grupa <- pam_k2
+
+
+srednie <- dane_analiza %>%
+  group_by(Grupa) %>%
+  summarise(across(everything(), mean))
+
+library(knitr)
+srednie %>%
+  kable(format = "pipe", digits = 2, caption = "Średnie wartości cech w skupieniach")
+```
+
+```{r pudelkowe, echo=FALSE, fig.cap="\\label{pudel}Porównanie wykresów pudełkowych"}
+par=(mfrow=c(1,2))
+
+p4<-ggplot(dane_analiza, aes(x = as.factor(Grupa), y = glucose, fill = as.factor(Grupa))) +
+  geom_boxplot() +
+  ggtitle("Poziom glukozy w grupach") +
+  xlab("Grupa") +
+  ylab("Glukoza") +
+  theme_minimal()
+
+p5<-ggplot(dane_analiza, aes(x = as.factor(Grupa), y = age, fill = as.factor(Grupa))) +
+  geom_boxplot() +
+  ggtitle("Wiek w grupach") +
+  xlab("Grupa") +
+  ylab("Wiek") +
+  theme_minimal()
+
+grid.arrange(p4, p5, ncol = 2)
+```
+
+Analiza charakterystyk skupień dla **K=2** przedstawionych na rysunku \ref{pudel} pokazuje znaczące różnice między grupami:
+
+Grupa 1: niższe średnie wartości glukozy, niższy wiek, mniejsze BMI
+
+Grupa 2: wyższe wartości glukozy, starsi pacjenci, wyższe BMI
+
+```{r medoidy, echo=FALSE}
+wyniki_pam <- pam(dane_pima, k=2)
+library(knitr)
+wyniki_pam$medoids %>%
+  kable(format = "pipe", digits = 2, caption = "Wartości cech - medoidy")
+```
+
+Medoidy (reprezentanci skupień) dla algorytmu PAM:
+
+Grupa 1: pacjentka z umiarkowanymi wartościami glukozy (110), BMI (32.4), młodsza (27 lat)
+
+Grupa 2: pacjentka z podwyższoną glukozą (157), wyższym BMI (39.4), starsza (30 lat)
